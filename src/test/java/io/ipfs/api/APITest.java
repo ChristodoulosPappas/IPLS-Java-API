@@ -429,6 +429,7 @@ public class APITest {
         Assert.assertTrue("Fast synchronous pub-sub", duration < 1000);
     }
 
+    /*
     @Test
     public void pubsub() throws Exception {
         String topic = "topic" + System.nanoTime();
@@ -439,7 +440,7 @@ public class APITest {
         List<Map> results = sub.limit(2).collect(Collectors.toList());
         Assert.assertTrue( ! results.get(0).equals(Collections.emptyMap()));
     }
-
+*/
     private static String toEscapedHex(byte[] in) throws IOException {
         StringBuilder res = new StringBuilder();
         for (byte b : in) {
