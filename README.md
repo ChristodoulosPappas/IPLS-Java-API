@@ -33,5 +33,5 @@ To get a new the updated model from the distributed shared memory use:
 ```
 
 ## License
-
+[MIT](LICENSE)
 [Παπαγιώργη!](LICENSE)
