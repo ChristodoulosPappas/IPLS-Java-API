@@ -248,6 +248,8 @@ public class IPFS {
         }
     }
 
+
+
     public class Pubsub {
         public Object ls() throws IOException {
             return retrieveAndParse("pubsub/ls");
@@ -272,12 +274,18 @@ public class IPFS {
             return retrieveAndParse("pubsub/pub?arg="+topic + "&arg=" + data);
         }
 
-        public Stream<Map<String, Object>> sub(String topic) throws Exception {
-            return sub(topic, ForkJoinPool.commonPool());
+        public Object pub(String topic, Double[] data) throws Exception {
+            return retrieveAndParse("pubsub/pub?arg="+topic + "&arg=" + data);
         }
 
-        public Stream<Map<String, Object>> sub(String topic, ForkJoinPool threadSupplier) throws Exception {
-            return retrieveAndParseStream("pubsub/sub?arg=" + topic, threadSupplier).map(obj -> (Map)obj);
+
+
+        public Stream<Map<String, Object>> sub(String topic,BlockingQueue<String> queue) throws Exception {
+            return sub(topic, ForkJoinPool.commonPool(),queue);
+        }
+
+        public Stream<Map<String, Object>> sub(String topic, ForkJoinPool threadSupplier,BlockingQueue<String> queue) throws Exception {
+            return retrieveAndParseStream("pubsub/sub?arg=" + topic, threadSupplier,queue).map(obj -> (Map)obj);
         }
 
         /**
@@ -638,7 +646,7 @@ public class IPFS {
         return JSONParser.parse(new String(res));
     }
 
-    private Stream<Object> retrieveAndParseStream(String path, ForkJoinPool executor) throws IOException {
+    private Stream<Object> retrieveAndParseStream(String path, ForkJoinPool executor,BlockingQueue<String> queue) throws IOException {
         BlockingQueue<CompletableFuture<byte[]>> results = new LinkedBlockingQueue<>();
         InputStream in = retrieveStream(path);
         executor.submit(() -> getObjectStream(in,
@@ -651,13 +659,23 @@ public class IPFS {
                     results.add(fut);
                 })
         );
+
         return Stream.generate(() -> {
             try {
+                while(true) {
+                    String s = new String(results.take().get());
+                    queue.add(s);
+                    if (s == null) {
+                        break;
+                    }
+                    //System.out.println(s);
+                }
                 return JSONParser.parse(new String(results.take().get()));
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
         });
+
     }
 
     /**
@@ -672,14 +690,17 @@ public class IPFS {
 
     private byte[] retrieve(String path) throws IOException {
         URL target = new URL(protocol, host, port, version + path);
+
         return IPFS.get(target, timeout);
     }
 
     private static byte[] get(URL target, int timeout) throws IOException {
-        HttpURLConnection conn = configureConnection(target, "GET", timeout);
+
+        HttpURLConnection conn = configureConnection(target, "POST", timeout);
 
         try {
             InputStream in = conn.getInputStream();
+
             ByteArrayOutputStream resp = new ByteArrayOutputStream();
 
             byte[] buf = new byte[4096];
@@ -701,7 +722,6 @@ public class IPFS {
 
     private void getObjectStream(InputStream in, Consumer<byte[]> processor, Consumer<IOException> error) {
         byte LINE_FEED = (byte)10;
-
         try {
             ByteArrayOutputStream resp = new ByteArrayOutputStream();
 
@@ -712,8 +732,11 @@ public class IPFS {
                 if (buf[r - 1] == LINE_FEED) {
                     processor.accept(resp.toByteArray());
                     resp.reset();
+                    //break;
                 }
             }
+            resp.flush();
+
         } catch (IOException e) {
             error.accept(e);
         }
@@ -744,7 +767,7 @@ public class IPFS {
     }
 
     private static InputStream getStream(URL target, int timeout) throws IOException {
-        HttpURLConnection conn = configureConnection(target, "GET", timeout);
+        HttpURLConnection conn = configureConnection(target, "POST", timeout);
         return conn.getInputStream();
     }
 
@@ -790,6 +813,7 @@ public class IPFS {
         conn.setRequestMethod(method);
         conn.setRequestProperty("Content-Type", "application/json");
         conn.setReadTimeout(timeout);
+
         return conn;
     }
 }
