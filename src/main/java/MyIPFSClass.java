@@ -3,9 +3,11 @@ import io.ipfs.api.KeyInfo;
 import io.ipfs.api.MerkleNode;
 import io.ipfs.api.NamedStreamable;
 import io.ipfs.multihash.Multihash;
+import org.javatuples.Triplet;
 
 import java.io.*;
 import java.nio.ByteBuffer;
+import java.time.Period;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -229,6 +231,42 @@ public class MyIPFSClass {
         return Base64.getUrlEncoder().encodeToString(finalbarr);
     }
 
+    public static String Marshall_Packet(List<String> Peers,boolean isReply){
+        int counter = 0,data_size = 0;
+        byte[] finalbarr;
+
+        ByteBuffer buff = ByteBuffer.allocate(Short.BYTES*(Peers.size() + 3));
+
+        buff.putShort(0,(short) 7);
+        if(isReply){
+            buff.putShort(Short.BYTES,(short) 1);
+        }
+        else{
+            buff.putShort(Short.BYTES,(short) 0);
+        }
+        buff.putShort(Short.BYTES*2,(short) Peers.size());
+        for(int i = 0; i < Peers.size(); i++){
+            buff.putShort(Short.BYTES*(3+i),(short)Peers.get(i).length());
+            data_size += Peers.get(i).length();
+        }
+        byte[] barr = new byte[buff.remaining()];
+        buff.get(barr);
+        finalbarr = new byte[barr.length + data_size];
+        for(counter = 0; counter <  barr.length; counter++){
+            finalbarr[counter] = barr[counter];
+        }
+        byte[] String_Bytes;
+        for(int i = 0; i < Peers.size(); i++){
+            String_Bytes = Peers.get(i).getBytes();
+            for(int j = 0; j < Peers.get(i).length(); j++){
+                finalbarr[counter] = String_Bytes[j];
+                counter++;
+            }
+        }
+
+        return Base64.getUrlEncoder().encodeToString(finalbarr);
+    }
+
     public static String Marshall_Packet(String Hash,String OriginPeer,int Partition,short pid) {
         int i;
         byte[] finalbarr;
@@ -279,6 +317,108 @@ public class MyIPFSClass {
 
     }
 
+    public Map<String,List<Integer>> Get_Partitions(ByteBuffer rbuff,  byte[] bytes_array){
+        int arr_len,i;
+        String PeerId;
+        arr_len = rbuff.getInt();
+        Map<String,List<Integer>> map = new HashMap<String,List<Integer>>();
+        List<Integer> Peer_Auth = new ArrayList<Integer>();
+        for(i = 0; i < arr_len; i++){
+            Peer_Auth.add(rbuff.getInt());
+        }
+        byte[] Id_array = new byte[bytes_array.length - (arr_len + 1) * Integer.BYTES - Short.BYTES];
+        for (i = (arr_len + 1) * Integer.BYTES + Short.BYTES; i < bytes_array.length; i++) {
+            Id_array[i - (arr_len + 1) * Integer.BYTES - Short.BYTES] = bytes_array[i];
+        }
+        System.out.println(Peer_Auth);
+
+        PeerId = new String(Id_array);
+        map.put(PeerId,Peer_Auth);
+        return map;
+    }
+
+    //List<Double> is going to become INDArray one day
+    // Deserializing Update message
+    public Triplet<String,Integer,List<Double>> Get_Gradients(ByteBuffer rbuff, byte[] bytes_array){
+        int arr_len,i,Partition;
+        String PeerId;
+        arr_len = rbuff.getInt();
+        Partition = rbuff.getInt();
+        List<Double> Gradients = new ArrayList<Double>();
+
+        for(i = 0; i < arr_len; i++){
+            Gradients.add(rbuff.getDouble());
+        }
+        byte[] Id_array = new byte[bytes_array.length - arr_len*Double.BYTES - 2 *Integer.BYTES - Short.BYTES];
+        for (i = arr_len * Double.BYTES + 2 * Integer.BYTES + Short.BYTES; i < bytes_array.length; i++) {
+            Id_array[i - arr_len * Double.BYTES - 2 * Integer.BYTES - Short.BYTES] = bytes_array[i];
+        }
+        //System.out.println(Gradients);
+
+        PeerId = new String(Id_array);
+
+        return new Triplet<>(PeerId,Partition,Gradients);
+    }
+
+    public String Get_Peer(ByteBuffer rbuff,  byte[] bytes_array, int start){
+        int i;
+        byte[] Id_array = new byte[bytes_array.length  - start];
+
+        for (i = start; i < bytes_array.length; i++) {
+            Id_array[i - start] = bytes_array[i];
+        }
+        return  new String(Id_array);
+    }
+
+
+    public static List<String> Get_MultiaddrPeers(ByteBuffer rbuff, byte[] bytes_array){
+        int list_size = 0,counter = 0;
+        List<Short> sizes = new ArrayList<>();
+        List<String> Peers = new ArrayList<>();
+        list_size = rbuff.getShort();
+        for(int i = 0; i < list_size; i++){
+            sizes.add(rbuff.getShort());
+        }
+
+        counter = (list_size+3)*Short.BYTES;
+
+        for(int i = 0; i < list_size; i++){
+            byte[] StringBytes = new byte[sizes.get(i)];
+            for(int j = 0; j < sizes.get(i); j++){
+                StringBytes[j] = bytes_array[counter];
+                counter++;
+            }
+            Peers.add(new String(StringBytes));
+        }
+
+        return Peers;
+    }
+
+
+    public Triplet<Integer,String,String> Get_ACK(ByteBuffer rbuff,  byte[] bytes_array){
+        int Partition,i;
+        short Hashsize,OriginPeerSize;
+        String Hash,Origin_Peer;
+        Hashsize = rbuff.getShort();
+        OriginPeerSize = rbuff.getShort();
+        Partition = rbuff.getInt();
+
+        byte[] Id_array = new byte[bytes_array.length -  Integer.BYTES - 3*Short.BYTES - OriginPeerSize];
+        byte[] Origin_array = new byte[bytes_array.length-  Integer.BYTES - 3*Short.BYTES - Hashsize];
+
+
+        for (i =  Integer.BYTES + 3*Short.BYTES; i < Integer.BYTES + 3*Short.BYTES + Hashsize; i++) {
+            Id_array[i -  Integer.BYTES - 3*Short.BYTES] = bytes_array[i];
+        }
+        for (i = Integer.BYTES + 3*Short.BYTES + Hashsize; i < bytes_array.length; i++){
+            Origin_array[i - Integer.BYTES - 3*Short.BYTES - Hashsize] = bytes_array[i];
+        }
+
+        Hash = new String(Id_array);
+        System.out.println("HASH : " + Hash + " , " + Hash.length());
+        Origin_Peer = new String(Origin_array);
+        return new Triplet<>(Partition,Hash,Origin_Peer);
+    }
     /*
     // Here we wait for a publish from a specific topic to get gradients
     public double[] recv(IPFS ipfs,String topic) throws Exception {

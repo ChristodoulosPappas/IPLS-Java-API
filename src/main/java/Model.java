@@ -1,3 +1,4 @@
+import io.ipfs.api.Sub;
 import io.ipfs.multihash.Multihash;
 import jdk.nashorn.internal.ir.Labels;
 import org.deeplearning4j.datasets.iterator.INDArrayDataSetIterator;
@@ -13,6 +14,9 @@ import org.deeplearning4j.optimize.listeners.ScoreIterationListener;
 import org.javatuples.LabelValue;
 import org.javatuples.Pair;
 import org.javatuples.Triplet;
+//import org.nd4j.evaluation.classification.Evaluation;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.nd4j.evaluation.classification.Evaluation;
 import org.nd4j.linalg.activations.Activation;
 import org.nd4j.linalg.api.ndarray.INDArray;
@@ -21,6 +25,10 @@ import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
 import org.nd4j.linalg.factory.Nd4j;
 import org.nd4j.linalg.learning.config.Sgd;
 import org.nd4j.linalg.lossfunctions.LossFunctions;
+//import org.nd4j.shade.guava.primitives.Doubles;
+import io.ipfs.api.IPFS;
+
+import io.ipfs.multiaddr.MultiAddress;
 import org.nd4j.shade.guava.primitives.Doubles;
 
 import java.io.FileOutputStream;
@@ -28,9 +36,8 @@ import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.nio.ByteBuffer;
 import java.util.*;
-
-
-
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 
 public class Model {
@@ -76,6 +83,8 @@ public class Model {
 
     public static void main(String[] args) throws Exception {
         String Path = args[0];
+        List<String> Bootstrapers = new ArrayList<>();
+        boolean isBootstraper;
         final int numRows = 28;
         final int numColumns = 28;
         int outputNum = 10; // number of output classes
@@ -97,10 +106,20 @@ public class Model {
 
         }
 
+        
+        Class c = Class.forName("Model");
+        System.out.println(c.getClass().getCanonicalName());
+        for(i = 1; i < args.length-1; i++){
+            Bootstrapers.add(args[i]);
+        }
 
-
-
-
+        if(args[args.length-1].equals("true")){
+        	System.out.println("Starting Bootstraper ...");
+            isBootstraper = true;
+        }
+        else{
+            isBootstraper = false;
+        }
         //log.info("Build model....");
         MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
                 .seed(rngSeed) //include a random seed for reproducibility
@@ -126,8 +145,7 @@ public class Model {
         MultiLayerNetwork model = new MultiLayerNetwork(conf);
         model.init();
         model.setListeners(new ScoreIterationListener(1));  //print the score with every iteration
-
-        /*
+		/*
         // INITIALIZE ETH FILE
         List<Double> L = new ArrayList<>();
         FileOutputStream fos = new FileOutputStream("ETHModel");
@@ -136,10 +154,11 @@ public class Model {
         oos.writeObject(Doubles.asList(model.params().getRow(0).toDoubleVector()));
         oos.close();
         fos.close();
-         */
         //System.out.println(mnistTrain.next(10).);
+         */
+
         /*
-        // CHECKING SERIALIZATION
+		// CHECKING SERIALIZATION
         IPFS ipfs = new IPFS(Path);
         MyIPFSClass ipfsClass = new MyIPFSClass(Path);
         System.out.println((short) ipfs.id().get("ID").toString().length());
@@ -182,11 +201,10 @@ public class Model {
          */
 
 
-
         INDArray TotalInput = Nd4j.zeros(10000,784);
         INDArray TotalLabels = Nd4j.zeros(10000,10);
-        INDArray Input = Nd4j.zeros(3333,784);
-        INDArray Output = Nd4j.zeros(3333,10);
+        INDArray Input = Nd4j.zeros(2000,784);
+        INDArray Output = Nd4j.zeros(2000,10);
 
         int counter = 0;
         DataSet Data;
@@ -200,25 +218,28 @@ public class Model {
                 counter++;
             }
         }
+        Random r = new Random();
         System.out.println(TotalLabels.rows());
-        if(Path.equals("/ip4/127.0.0.1/tcp/5001")) {
-            for(i = 0; i < 3333; i++){
-                Input.putRow(i,TotalInput.getRow(i));
-                Output.putRow(i,TotalLabels.getRow(i));
+        i = 0;
+        counter = 0;
+        while(true) {
+            i = 0;
+            while (true) {
+                i += r.nextInt(10) + 1;
+                Output.putRow(i, TotalLabels.getRow(i));
+                Input.putRow(i, TotalInput.getRow(i));
+                counter += 1;
+                if (i >= 1000 || counter == 2000) {
+                    break;
+                }
+            }
+            if(counter == 2000){
+                break;
             }
         }
-        else if(Path.equals("/ip4/127.0.0.1/tcp/5002")){
-            for(i = 3333; i < 6666; i++){
-                Input.putRow(i-3333,TotalInput.getRow(i));
-                Output.putRow(i-3333,TotalLabels.getRow(i));
-            }
-        }
-        else{
-            for(i = 6666; i < 9999; i++){
-                Input.putRow(i-6666,TotalInput.getRow(i));
-                Output.putRow(i-6666,TotalLabels.getRow(i));
-            }
-        }
+
+
+
         //log.info("Train model....");
         Pair<Gradient, INDArray> temp_gradient;
         INDArray gradient;
@@ -228,15 +249,13 @@ public class Model {
         //System.out.println(mnistTest.next().getFeatures().length());
 
         IPLS ipls = new IPLS();
-        ipls.init(Path);
+        ipls.init(Path,Bootstrapers,isBootstraper);
         List<Double> arr = new ArrayList<>();
 
         INDArray Dumm = Nd4j.zeros(1,443610);
 
-
-
         System.out.println(model.params());
-        for(i = 0; i < 250; i++){
+        for(i = 0; i < 100; i++){
             arr = ipls.GetPartitions();
             for(int j = 0; j < model.params().length(); j++){
                Dumm.put(0,j,arr.get(j));
@@ -250,18 +269,17 @@ public class Model {
             //Thread.sleep(5000);
             gradient = model.getGradientsViewArray();
             //HERE GO UPDATE METHOD
-            System.out.println("Iter : " + i);
+            System.out.println("ITERATION : " + i);
             ipls.UpdateGradient(Doubles.asList(gradient.getRow(0).toDoubleVector()));
-            //Thread.sleep(2000);
+            Thread.sleep(1000);
 
         }
 
+        System.out.println("Evaluate model....");
 
-        //log.info("Evaluate model....");
         Evaluation eval = model.evaluate(mnistTest);
         System.out.println(eval.stats());
-        //log.info(eval.stats());
-        //log.info("****************Example finished********************");
+        System.out.println("****************Example finished********************");
 
 
 

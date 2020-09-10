@@ -3,6 +3,7 @@ package io.ipfs.api;
 import io.ipfs.cid.*;
 import io.ipfs.multihash.Multihash;
 import io.ipfs.multiaddr.MultiAddress;
+import sun.rmi.transport.StreamRemoteCall;
 
 import java.io.*;
 import java.net.*;
@@ -280,13 +281,22 @@ public class IPFS {
 
 
 
-        public Stream<Map<String, Object>> sub(String topic,BlockingQueue<String> queue) throws Exception {
+        public Stream<Map<String, Object>> sub(String topic,BlockingQueue<String> queue,boolean dynamic) throws Exception {
+            if(dynamic){
+                return sub(topic, new ForkJoinPool(1),queue);
+            }
+
             return sub(topic, ForkJoinPool.commonPool(),queue);
         }
+        //public Stream<Map<String, Object>> sub(String topic,BlockingQueue<String> queue) throws Exception {
+        //    return sub(topic, new ForkJoinPool(1),queue);
+        //}
+
 
         public Stream<Map<String, Object>> sub(String topic, ForkJoinPool threadSupplier,BlockingQueue<String> queue) throws Exception {
-            return retrieveAndParseStream("pubsub/sub?arg=" + topic, threadSupplier,queue).map(obj -> (Map)obj);
+            return retrieveAndParseStream("pubsub/sub?arg=" + topic, topic,threadSupplier,queue).map(obj -> (Map)obj);
         }
+
 
         /**
          * A synchronous method to subscribe which consumes the calling thread
@@ -646,9 +656,14 @@ public class IPFS {
         return JSONParser.parse(new String(res));
     }
 
-    private Stream<Object> retrieveAndParseStream(String path, ForkJoinPool executor,BlockingQueue<String> queue) throws IOException {
+
+    private Stream<Object> retrieveAndParseStream(String path,String topic, ForkJoinPool executor,BlockingQueue<String> queue) throws IOException {
         BlockingQueue<CompletableFuture<byte[]>> results = new LinkedBlockingQueue<>();
+
         InputStream in = retrieveStream(path);
+        System.out.println(executor);
+
+
         executor.submit(() -> getObjectStream(in,
                 res -> {
                     results.add(CompletableFuture.completedFuture(res));
@@ -664,10 +679,15 @@ public class IPFS {
             try {
                 while(true) {
                     String s = new String(results.take().get());
+                    if(s == null) {
+                    	System.out.println("NULL !!!");
+                    }
                     queue.add(s);
-                    if (s == null) {
+
+                    if (TerminateConditions.terminate.get(topic) == true) {
                         break;
                     }
+
                     //System.out.println(s);
                 }
                 return JSONParser.parse(new String(results.take().get()));

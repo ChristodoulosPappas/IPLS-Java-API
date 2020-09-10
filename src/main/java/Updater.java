@@ -10,7 +10,7 @@ import java.util.List;
 
 public class Updater extends Thread{
     IPFS ipfs;
-    MyIPFSClass AuxilaryIpfs;
+    MyIPFSClass ipfsClass;
 
 
 
@@ -25,34 +25,49 @@ public class Updater extends Thread{
         return  ipfsClass.add_file(filename);
     }
 
-    public void _Update(List<Double> Gradient,int Partiton){
+    public void _Update(List<Double> Gradient,int Partiton,String Origin){
         int i,counter = 0;
-        List<Double> PWeight = new ArrayList<>();
-
-
-        for(i = 0; i < PeerData.Weights.get(Partiton).size(); i++){
-            PWeight.add(PeerData.Weights.get(Partiton).get(i) - Gradient.get(i));
+        if(Origin != null) {
+            for (i = 0; i < PeerData.Weights.get(Partiton).size(); i++) {
+                PeerData.Weights.get(Partiton).set(i, PeerData.Weights.get(Partiton).get(i) - Gradient.get(i));
+                PeerData.Aggregated_Gradients.get(Partiton).set(i, PeerData.Aggregated_Gradients.get(Partiton).get(i) + Gradient.get(i));
+            }
         }
-
-        PeerData.Weights.replace(Partiton,PWeight);
-
+        else{
+            for (i = 0; i < PeerData.Weights.get(Partiton).size(); i++) {
+                PeerData.Weights.get(Partiton).set(i, PeerData.Weights.get(Partiton).get(i) - Gradient.get(i));
+            }
+        }
     }
 
 
     public void run(){
         ipfs = new IPFS(PeerData.Path);
+        ipfsClass = new MyIPFSClass(PeerData.Path);
+        int partition;
+        List<Double> Gradient;
         String PeerId,reply;
         Triplet<String,Integer, List<Double>> request;
         Multihash hash;
         try {
             while (true) {
                 request = PeerData.queue.take();
-                _Update(request.getValue2(), request.getValue1());
+                partition = request.getValue1();
+                Gradient = request.getValue2();
                 PeerId = request.getValue0();
-                //hash = _Upload_File(PeerData.Weights.get(request.getValue1()),AuxilaryIpfs,"MFP" + request.getValue1());
-                //PeerData.LastUpdate.put(request.getValue1(),hash);
-                if(PeerId.equals(ipfs.id().get("ID").toString()) == false) {
-                    ipfs.pubsub.pub(PeerId,AuxilaryIpfs.Marshall_Packet(PeerData.Weights.get(request.getValue1()),ipfs.id().get("ID").toString(),request.getValue1(),(short)4));
+
+                _Update(Gradient, partition,PeerId);
+
+
+                if(PeerId != null && PeerId.equals(ipfs.id().get("ID").toString()) == false) {
+                    ipfs.pubsub.pub(PeerId,ipfsClass.Marshall_Packet(PeerData.Weights.get(request.getValue1()),ipfs.id().get("ID").toString(),request.getValue1(),(short)4));
+                }
+                else if(PeerId != null){
+                    ipfs.pubsub.pub(new Integer(partition).toString(),ipfsClass.Marshall_Packet(PeerData.Aggregated_Gradients.get(partition),ipfs.id().get("ID").toString(),partition,(short) 3));
+                    //Clean Aggregated_Gradients vector
+                    for(int i = 0; i < PeerData.Aggregated_Gradients.get(partition).size(); i++){
+                        PeerData.Aggregated_Gradients.get(partition).set(i,0.0);
+                    }
                 }
 
             }
