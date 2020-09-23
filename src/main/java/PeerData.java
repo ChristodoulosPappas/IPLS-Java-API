@@ -16,13 +16,15 @@ import java.util.concurrent.Semaphore;
 public class PeerData {
     public static Semaphore InitSem = new Semaphore(0);
 
-    public static int _PARTITIONS = 6;
-    public static int _MIN_PARTITIONS = 2;
+    public static int _PARTITIONS;
+    public static int _MIN_PARTITIONS;
     public static int _MODEL_SIZE;
     public static boolean First_Iter = true;
+    public static boolean isBootsraper;
     public static int _Iter_Clock = 0;
     public static String _ID = null;
     public static String MyPublic_Multiaddr = null;
+    public static int Index = 0;
 
 
 
@@ -37,6 +39,7 @@ public class PeerData {
 
     public static List<Double> Gradients = new ArrayList<Double>();
     public static Map<Integer,List<Double>> Aggregated_Gradients = new HashMap<>();
+    public static Map<Integer,List<Double>> Stored_Gradients = new HashMap<>();
     public static Map<Integer,List<Double>> Weights = new HashMap<Integer, List<Double>>();
 
     public static boolean sendingGradients = false;

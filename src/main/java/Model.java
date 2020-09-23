@@ -2,7 +2,10 @@ import io.ipfs.api.Sub;
 import io.ipfs.multihash.Multihash;
 import jdk.nashorn.internal.ir.Labels;
 import org.deeplearning4j.datasets.iterator.INDArrayDataSetIterator;
+import org.deeplearning4j.datasets.iterator.impl.EmnistDataSetIterator;
+import org.deeplearning4j.datasets.iterator.impl.LFWDataSetIterator;
 import org.deeplearning4j.datasets.iterator.impl.MnistDataSetIterator;
+import org.deeplearning4j.datasets.iterator.impl.LFWDataSetIterator;
 import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
 import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
 import org.deeplearning4j.nn.conf.layers.DenseLayer;
@@ -23,6 +26,7 @@ import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.dataset.DataSet;
 import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
 import org.nd4j.linalg.factory.Nd4j;
+import org.nd4j.linalg.learning.config.Adam;
 import org.nd4j.linalg.learning.config.Sgd;
 import org.nd4j.linalg.lossfunctions.LossFunctions;
 //import org.nd4j.shade.guava.primitives.Doubles;
@@ -32,12 +36,15 @@ import io.ipfs.multiaddr.MultiAddress;
 import org.nd4j.shade.guava.primitives.Doubles;
 
 import java.io.FileOutputStream;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+
+import static org.deeplearning4j.datasets.iterator.impl.EmnistDataSetIterator.Set.LETTERS;
 
 
 public class Model {
@@ -93,39 +100,56 @@ public class Model {
         int numEpochs = 15; // number of epochs to perform
         double rate = 0.0015; // learning rate
         int i;
-        DataSetIterator mnistTrain = null,mnistTest = null;
+        DataSetIterator lfw = null,mnistTrain = null,mnistTest = null;
         DataSet dataset = null;
         try {
             //Get the DataSetIterators:
+
+            lfw = new EmnistDataSetIterator(LETTERS,batchSize,true);
+
             mnistTrain = new MnistDataSetIterator(batchSize, true, rngSeed);
             // System.out.println(mnistTrain.next(1).getLabels().toStringFull());
             //System.out.println(mnistTrain.next(1).getFeatures().toStringFull());
             mnistTest = new MnistDataSetIterator(batchSize, false, rngSeed);
         }
         catch (Exception e){
-
+            System.out.println("Could not find iterator ");
         }
 
-        
+        //MNiST : 1000
+        //lfw : 1480
+
         Class c = Class.forName("Model");
         System.out.println(c.getClass().getCanonicalName());
         for(i = 1; i < args.length-1; i++){
+            if(args[i].equals("p") || args[i].equals("d") || args[i].equals("r")){
+                break;
+            }
             Bootstrapers.add(args[i]);
         }
+
+        i++;
+        PeerData._PARTITIONS = new Integer(args[i]);
+        i++;
+        PeerData._MIN_PARTITIONS = new Integer(args[i]);
+        i++;
 
         if(args[args.length-1].equals("true")){
         	System.out.println("Starting Bootstraper ...");
             isBootstraper = true;
+            PeerData.isBootsraper = true;
         }
         else{
             isBootstraper = false;
+            PeerData.isBootsraper = false;
+
         }
         //log.info("Build model....");
         MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
                 .seed(rngSeed) //include a random seed for reproducibility
+                .updater(new Sgd(0.1))
                 .activation(Activation.RELU)
                 .weightInit(WeightInit.XAVIER)
-                .updater(new Sgd(0.1))
                 .l2(rate * 0.005) // regularize learning model
                 .list()
                 .layer(new DenseLayer.Builder() //create the first input layer.
@@ -145,6 +169,8 @@ public class Model {
         MultiLayerNetwork model = new MultiLayerNetwork(conf);
         model.init();
         model.setListeners(new ScoreIterationListener(1));  //print the score with every iteration
+
+
 		/*
         // INITIALIZE ETH FILE
         List<Double> L = new ArrayList<>();
@@ -203,14 +229,18 @@ public class Model {
 
         INDArray TotalInput = Nd4j.zeros(10000,784);
         INDArray TotalLabels = Nd4j.zeros(10000,10);
-        INDArray Input = Nd4j.zeros(2000,784);
-        INDArray Output = Nd4j.zeros(2000,10);
+        INDArray batchIn = Nd4j.zeros(100,784);
+        INDArray batchOut = Nd4j.zeros(100,10);
 
+        INDArray Input;
+        INDArray Output;
+        INDArray Input2 = null;
+        INDArray Output2 = null;
         int counter = 0;
         DataSet Data;
 
 
-        for(i = 0; i < 1000 && mnistTest.hasNext(); i++){
+        for(int k = 0; k < 1000 && mnistTest.hasNext(); k++){
             Data = mnistTest.next();
             for(int j = 0; j < Data.getFeatures().rows(); j++){
                 TotalInput.putRow(counter,Data.getFeatures().getRow(j));
@@ -218,41 +248,96 @@ public class Model {
                 counter++;
             }
         }
-        Random r = new Random();
-        System.out.println(TotalLabels.rows());
-        i = 0;
-        counter = 0;
-        while(true) {
-            i = 0;
-            while (true) {
-                i += r.nextInt(10) + 1;
-                Output.putRow(i, TotalLabels.getRow(i));
-                Input.putRow(i, TotalInput.getRow(i));
-                counter += 1;
-                if (i >= 1000 || counter == 2000) {
-                    break;
+
+
+        if(args[i].equals("r")){
+            int begin = new Integer(args[i+1]);
+            int end = new Integer(args[i+2]);
+            Input = Nd4j.zeros(end - begin,784);
+            Output = Nd4j.zeros(end - begin,10);
+            for(i = begin; i < end; i++){
+                Output.putRow(i - begin, TotalLabels.getRow(i));
+                Input.putRow(i - begin, TotalInput.getRow(i));
+            }
+
+        }
+        else{
+            List<Integer> Partitions = new ArrayList<>();
+            int[] arr = new int[10];
+            int[] putIndex = new int[10];
+            int index;
+            int datasize = 0;
+            for(int j = i +1; j < args.length-1; j++){
+                Partitions.add(new Integer(args[j]));
+            }
+            for(i = 0; i <  10000; i++){
+                arr[Doubles.asList(TotalLabels.getRow(i).toDoubleVector()).indexOf(1.0)]++;
+            }
+            Map<Integer, INDArray> DataMap = new HashMap<>();
+            Map<Integer, INDArray> LabelsMap = new HashMap<>();
+            for(i = 0 ; i < 10; i++){
+                DataMap.put(i,Nd4j.zeros(arr[i],784));
+                LabelsMap.put(i,Nd4j.zeros(arr[i],10));
+                putIndex[i] = 0;
+                System.out.println(arr[i]);
+            }
+            for(i = 0; i < 10000; i++){
+                index = Doubles.asList(TotalLabels.getRow(i).toDoubleVector()).indexOf(1.0);
+                DataMap.get(index).putRow(putIndex[index],TotalInput.getRow(i));
+                LabelsMap.get(index).putRow(putIndex[index],TotalLabels.getRow(i));
+                putIndex[index]++;
+
+            }
+
+            for( i = 0; i < Partitions.size(); i++){
+                datasize += arr[Partitions.get(i)];
+            }
+            System.out.println(datasize);
+
+            Input = Nd4j.zeros(datasize,784);
+            Output = Nd4j.zeros(datasize,10);
+            Input2 = Nd4j.zeros(    10000-datasize,784);
+            Output2 = Nd4j.zeros(10000-datasize,10);
+
+            index = 0;
+            for(i = 0; i < Partitions.size(); i++){
+                for(int j = 0; j < DataMap.get(Partitions.get(i)).rows(); j++){
+                    Input.putRow(index,DataMap.get(Partitions.get(i)).getRow(j));
+                    Output.putRow(index,LabelsMap.get(Partitions.get(i)).getRow(j));
+                    index++;
                 }
             }
-            if(counter == 2000){
-                break;
+            index = 0;
+            List<Integer> P2 = new ArrayList<>();
+            for(i = 5; i < 10; i++){
+                P2.add(i);
+            }
+            for(i = 0; i < P2.size(); i++){
+                for(int j = 0; j < DataMap.get(P2.get(i)).rows(); j++){
+                    Input2.putRow(index,DataMap.get(P2.get(i)).getRow(j));
+                    Output2.putRow(index,LabelsMap.get(P2.get(i)).getRow(j));
+                    index++;
+                }
             }
         }
 
+        INDArray Dumm = Nd4j.zeros(1,443610);
+        INDArray gradient2 = Nd4j.zeros(1,443610);
+        INDArray gradient = Nd4j.zeros(1,443610);
+        Random rand = new Random();
+
+        int randomNum ;
+        List<Double> arr = new ArrayList<>();
 
 
-        //log.info("Train model....");
-        Pair<Gradient, INDArray> temp_gradient;
-        INDArray gradient;
-        INDArray Model = Nd4j.zeros(1,model.params().length());
-
-        //System.out.println(mnistTrain);
-        //System.out.println(mnistTest.next().getFeatures().length());
 
         IPLS ipls = new IPLS();
         ipls.init(Path,Bootstrapers,isBootstraper);
-        List<Double> arr = new ArrayList<>();
-
-        INDArray Dumm = Nd4j.zeros(1,443610);
+        if(isBootstraper){
+            while (true){
+                
+            }
+        }
 
         System.out.println(model.params());
         for(i = 0; i < 100; i++){
@@ -260,10 +345,20 @@ public class Model {
             for(int j = 0; j < model.params().length(); j++){
                Dumm.put(0,j,arr.get(j));
             }
+
             model.setParams(Dumm);
+            System.out.println(model.params());
+            System.out.println(Dumm);
+            System.out.println("Evaluate model....");
+
+            Evaluation eval = model.evaluate(mnistTest);
+            System.out.println(eval.stats());
+            System.out.println("****************Example finished********************");
+
             //System.out.println(arr.size());
             //HERE MUST GO GET PARTITIONS
             //model.setParams(UPDATED_WEIGHTS);
+            //System.out.println("Starting Iteration");
             model.fit(Input,Output);
             System.out.println(model.params());
             //Thread.sleep(5000);
@@ -271,15 +366,22 @@ public class Model {
             //HERE GO UPDATE METHOD
             System.out.println("ITERATION : " + i);
             ipls.UpdateGradient(Doubles.asList(gradient.getRow(0).toDoubleVector()));
+
             Thread.sleep(1000);
 
         }
-
+        arr = ipls.GetPartitions();
+        for(int j = 0; j < model.params().length(); j++){
+            Dumm.put(0,j,arr.get(j));
+        }
+        model.setParams(Dumm);
         System.out.println("Evaluate model....");
 
         Evaluation eval = model.evaluate(mnistTest);
         System.out.println(eval.stats());
         System.out.println("****************Example finished********************");
+
+
 
 
 

@@ -1,4 +1,4 @@
-import blockchainAPI.Storage;
+//import blockchainAPI.Storage;
 import org.web3j.crypto.Credentials;
 import org.web3j.crypto.ECKeyPair;
 import org.web3j.crypto.Keys;
@@ -24,6 +24,7 @@ public class Web3jTest {
         ECKeyPair exKey = Keys.createEcKeyPair();
         Web3j web = Web3j.build(new HttpService("https://ropsten.infura.io/v3/65313644b3c24f47b6e8b15abe8d5175"));
         Web3ClientVersion version = null;
+        /*
         try {
             version = web.web3ClientVersion().send();
         }
@@ -42,6 +43,8 @@ public class Web3jTest {
         //System.out.println(Dir.retrieveHash("Pas").encodeFunctionCall());
         //System.out.println("End");
         //Storage contract =  Storage.load();
+
+         */
     }
 
 }
