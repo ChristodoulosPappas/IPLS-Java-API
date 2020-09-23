@@ -200,6 +200,7 @@ public class MyIPFSClass {
         for (i = barr.length ; i < finalbarr.length; i++){
             finalbarr[i] = OriginIdBytes[i - barr.length];
         }
+
         return Base64.getUrlEncoder().encodeToString(finalbarr);
     }
 

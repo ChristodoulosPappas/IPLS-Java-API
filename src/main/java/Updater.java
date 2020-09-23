@@ -58,7 +58,9 @@ public class Updater extends Thread{
 
                 _Update(Gradient, partition,PeerId);
 
-
+                if(PeerData.isBootsraper){
+                    continue;
+                }
                 if(PeerId != null && PeerId.equals(ipfs.id().get("ID").toString()) == false) {
                     ipfs.pubsub.pub(PeerId,ipfsClass.Marshall_Packet(PeerData.Weights.get(request.getValue1()),ipfs.id().get("ID").toString(),request.getValue1(),(short)4));
                 }
