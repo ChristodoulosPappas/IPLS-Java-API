@@ -27,6 +27,7 @@ class GGP_Receiver extends Thread{
         while(true){
             try {
                 RecvData = PeerData.GGP_queue.take();
+                
 
                 obj = new JSONObject(RecvData);
 
@@ -40,9 +41,14 @@ class GGP_Receiver extends Thread{
                 rbuff = ByteBuffer.wrap(bytes_array);
                 rbuff.getShort();
                 Triplet<String,Integer, List<Double>> tuple = ipfsClass.Get_Gradients(rbuff,bytes_array);
+                System.out.println(tuple.getValue1());
                 if(!tuple.getValue0().equals(PeerData._ID)){
                     tuple.setAt0(null);
                     PeerData.queue.add(tuple);
+                    System.out.println("Global Gradient : " + tuple.getValue1());
+                }
+                else{
+                    tuple = null;
                 }
 
             }
@@ -96,6 +102,7 @@ public class GlobalGradientPool extends Thread{
                     Threads_Map.put(Task.getValue1(),Thread);
                 }
                 else{
+                	System.out.println("Removing : " + Task);
                     //Check if partition exists in Threads Map
                     if(Threads_Map.containsKey(Task.getValue1())){
                         Threads_Map.get(Task.getValue1()).terminate();

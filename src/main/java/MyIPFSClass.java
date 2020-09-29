@@ -29,6 +29,28 @@ public class MyIPFSClass {
         return node.get(0).hash;
     }
 
+    public Multihash _Upload_File(List<Double> Weights, String filename) throws IOException {
+        //Serialize the Partition model into a file
+        FileOutputStream fos = new FileOutputStream(filename);
+        ObjectOutputStream oos = new ObjectOutputStream(fos);
+        oos.writeObject(Weights);
+        oos.close();
+        fos.close();
+        // Add file into ipfs system
+        return  add_file(filename);
+    }
+
+    public Multihash _Upload_File(Map<Integer,List<Double>> Weights, String filename) throws IOException {
+        //Serialize the Partition model into a file
+        FileOutputStream fos = new FileOutputStream(filename);
+        ObjectOutputStream oos = new ObjectOutputStream(fos);
+        oos.writeObject(Weights);
+        oos.close();
+        fos.close();
+        // Add file into ipfs system
+        return  add_file(filename);
+    }
+
     public static List<Double> DownloadParameters(String hash) throws IOException, ClassNotFoundException {
         //IPFS ipfsObj = new IPFS("/ip4/127.0.0.1/tcp/5001");
         byte[] data;
@@ -295,6 +317,40 @@ public class MyIPFSClass {
         return Base64.getUrlEncoder().encodeToString(finalbarr);
     }
 
+    public static String Marshall_Packet(List<Integer> Auth,List<String> Peers){
+        ByteBuffer buff = ByteBuffer.allocate((Auth.size())*Integer.BYTES  + (3 + Peers.size())*Short.BYTES);
+        byte[] finalbarr;
+        int counter = 0;
+        int data_size = 0;
+
+        buff.putShort(0,(short) 11);
+        buff.putShort(Short.BYTES,(short)Auth.size());
+        for(int i = 0; i < Auth.size(); i++){
+            buff.putInt(2*Short.BYTES + i*Integer.BYTES, Auth.get(i));
+        }
+        for(int i = 0; i < Auth.size()+1; i++){
+            buff.putShort((2+i)*Short.BYTES + Auth.size()*Integer.BYTES , (short)Peers.get(i).length());
+            data_size += Peers.get(i).length();
+        }
+        byte[] barr = new byte[buff.remaining()];
+        buff.get(barr);
+        finalbarr = new byte[barr.length + data_size];
+        for(counter = 0; counter <  barr.length; counter++){
+            finalbarr[counter] = barr[counter];
+        }
+        byte[] String_Bytes;
+        for(int i = 0; i < Peers.size(); i++){
+            String_Bytes = Peers.get(i).getBytes();
+            for(int j = 0; j < Peers.get(i).length(); j++){
+                finalbarr[counter] = String_Bytes[j];
+                counter++;
+            }
+        }
+
+        return Base64.getUrlEncoder().encodeToString(finalbarr);
+
+    }
+
     public static  Map<String,List<Integer>> Unmarshall_Peer_Responsibilities(String returnval) throws UnsupportedEncodingException {
         int i, arr_len;
         byte[] bytes_array = Base64.getUrlDecoder().decode(returnval);
@@ -395,6 +451,39 @@ public class MyIPFSClass {
         return Peers;
     }
 
+    public Map<Integer,String> Get_RMap(ByteBuffer rbuff,  byte[] bytes_array){
+        Map<Integer,String> Responsibilities = new HashMap<>();
+        List<Integer> Auth = new ArrayList<>();
+        List<Short> Peer_Lengths = new ArrayList<>();
+        List<String> Peers = new ArrayList<>();
+        int size = 0;
+        int counter= 0;
+
+        size = rbuff.getShort();
+        for(int i = 0; i < size; i++){
+            Auth.add(rbuff.getInt());
+        }
+        for(int i = 0; i < size+1; i++){
+            Peer_Lengths.add(rbuff.getShort());
+        }
+
+        counter = (size+2)*Short.BYTES + (size+1)*Integer.BYTES;
+
+        for(int i = 0; i < size+1; i++){
+            byte[] StringBytes = new byte[Peer_Lengths.get(i)];
+            for(int j = 0; j < Peer_Lengths.get(i); j++){
+                StringBytes[j] = bytes_array[counter];
+                counter++;
+            }
+            Peers.add(new String(StringBytes));
+        }
+
+        for(int i = 0; i < size; i++){
+            Responsibilities.put(Auth.get(i),Peers.get(i));
+        }
+        Responsibilities.put(-1,Peers.get(size));
+        return Responsibilities;
+    }
 
     public Triplet<Integer,String,String> Get_ACK(ByteBuffer rbuff,  byte[] bytes_array){
         int Partition,i;

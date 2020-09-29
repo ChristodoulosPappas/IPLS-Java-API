@@ -15,6 +15,8 @@ import java.util.concurrent.Semaphore;
 
 public class PeerData {
     public static Semaphore InitSem = new Semaphore(0);
+    public static Semaphore mtx = new Semaphore(1);
+    public static Semaphore SendMtx = new Semaphore(1);
 
     public static int _PARTITIONS;
     public static int _MIN_PARTITIONS;
@@ -25,6 +27,7 @@ public class PeerData {
     public static String _ID = null;
     public static String MyPublic_Multiaddr = null;
     public static int Index = 0;
+    public static int is_alive_counter = 0;
 
 
 
@@ -37,7 +40,8 @@ public class PeerData {
     public static BlockingQueue<Pair<Integer,Integer>> UpdateQueue = new LinkedBlockingQueue<>();
 
 
-    public static List<Double> Gradients = new ArrayList<Double>();
+    public static Map<Integer,List<Double>> GradientPartitions = new HashMap<>();
+    //public static List<Double> Gradients = new ArrayList<Double>();
     public static Map<Integer,List<Double>> Aggregated_Gradients = new HashMap<>();
     public static Map<Integer,List<Double>> Stored_Gradients = new HashMap<>();
     public static Map<Integer,List<Double>> Weights = new HashMap<Integer, List<Double>>();

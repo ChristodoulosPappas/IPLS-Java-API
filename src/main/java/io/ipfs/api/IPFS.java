@@ -685,12 +685,16 @@ public class IPFS {
                     queue.add(s);
 
                     if (TerminateConditions.terminate.get(topic) == true) {
+                    	System.out.print("Last msg !!!!!!!");
+                    	in.close();
+                    	executor.shutdownNow();
                         break;
+                        
                     }
 
                     //System.out.println(s);
                 }
-                return JSONParser.parse(new String(results.take().get()));
+                return null;
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }

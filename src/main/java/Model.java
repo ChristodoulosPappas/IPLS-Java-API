@@ -23,6 +23,7 @@ import org.json.JSONObject;
 import org.nd4j.evaluation.classification.Evaluation;
 import org.nd4j.linalg.activations.Activation;
 import org.nd4j.linalg.api.ndarray.INDArray;
+import org.nd4j.linalg.dataset.AsyncDataSetIterator;
 import org.nd4j.linalg.dataset.DataSet;
 import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
 import org.nd4j.linalg.factory.Nd4j;
@@ -326,21 +327,44 @@ public class Model {
         INDArray gradient = Nd4j.zeros(1,443610);
         Random rand = new Random();
 
+
+
         int randomNum ;
         List<Double> arr = new ArrayList<>();
+        List<Double> acc = new ArrayList<>();
 
+        for(i = 0; i < 500; i++){
+            if(i%10 == 0){
+                System.out.println("Evaluate model....");
+
+                Evaluation eval = model.evaluate(mnistTest);
+                System.out.println(eval.stats());
+                System.out.println(eval.accuracy());
+                acc.add(eval.accuracy());
+                System.out.println("****************Example finished********************");
+
+            }
+            model.fit(TotalInput,TotalLabels);
+            model.fit(TotalInput,TotalLabels);
+            model.fit(TotalInput,TotalLabels);
+            model.fit(TotalInput,TotalLabels);
+
+
+        }
+        /*
 
 
         IPLS ipls = new IPLS();
         ipls.init(Path,Bootstrapers,isBootstraper);
         if(isBootstraper){
             while (true){
-                
+
             }
         }
 
+
         System.out.println(model.params());
-        for(i = 0; i < 100; i++){
+        for(i = 0; i < 500; i++){
             arr = ipls.GetPartitions();
             for(int j = 0; j < model.params().length(); j++){
                Dumm.put(0,j,arr.get(j));
@@ -349,12 +373,16 @@ public class Model {
             model.setParams(Dumm);
             System.out.println(model.params());
             System.out.println(Dumm);
-            System.out.println("Evaluate model....");
+            if(i%10 == 0){
+                System.out.println("Evaluate model....");
 
-            Evaluation eval = model.evaluate(mnistTest);
-            System.out.println(eval.stats());
-            System.out.println("****************Example finished********************");
+                Evaluation eval = model.evaluate(mnistTest);
+                System.out.println(eval.stats());
+                System.out.println(eval.accuracy());
+                acc.add(eval.accuracy());
+                System.out.println("****************Example finished********************");
 
+            }
             //System.out.println(arr.size());
             //HERE MUST GO GET PARTITIONS
             //model.setParams(UPDATED_WEIGHTS);
@@ -366,9 +394,9 @@ public class Model {
             //HERE GO UPDATE METHOD
             System.out.println("ITERATION : " + i);
             ipls.UpdateGradient(Doubles.asList(gradient.getRow(0).toDoubleVector()));
-
+            System.gc();
+            System.runFinalization();
             Thread.sleep(1000);
-
         }
         arr = ipls.GetPartitions();
         for(int j = 0; j < model.params().length(); j++){
@@ -382,6 +410,17 @@ public class Model {
         System.out.println("****************Example finished********************");
 
 
+
+
+        FileOutputStream fos = new FileOutputStream("ChartData");
+        ObjectOutputStream oos = new ObjectOutputStream(fos);
+        oos.writeObject(acc);
+        oos.close();
+        fos.close();
+
+
+
+         */
 
 
 
