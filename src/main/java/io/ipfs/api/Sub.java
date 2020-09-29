@@ -34,9 +34,12 @@ public class Sub extends Thread {
             sub = ipfs.pubsub.sub(Topic, Queue,Dynamic);
 
             sub.limit(1).collect(Collectors.toList());
+            sub.close();
+           
+            System.out.println("Subscription FINISHED");
         } catch (Exception e) {
             e.printStackTrace();
         }
-
+        
     }
 }
