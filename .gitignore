@@ -13,3 +13,4 @@ TEST-io.ipfs.api.APITest.*
 .idea/*
 api.iml
 
+/bin/

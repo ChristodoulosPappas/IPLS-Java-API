@@ -3,7 +3,7 @@ package io.ipfs.api;
 import io.ipfs.cid.*;
 import io.ipfs.multihash.Multihash;
 import io.ipfs.multiaddr.MultiAddress;
-import sun.rmi.transport.StreamRemoteCall;
+//import sun.rmi.transport.StreamRemoteCall;
 
 import java.io.*;
 import java.net.*;

@@ -2,6 +2,7 @@ import io.ipfs.api.*;
 import io.ipfs.multiaddr.MultiAddress;
 import io.ipfs.multihash.Multihash;
 import org.apache.commons.math3.analysis.function.Add;
+import org.bytedeco.opencv.presets.opencv_core;
 import org.javatuples.Pair;
 import org.javatuples.Triplet;
 
@@ -266,6 +267,10 @@ class ThreadReceiver extends Thread{
                 Triplet<String,Integer,List<Double>> tuple = AuxilaryIpfs.Get_Gradients(rbuff,bytes_array);
                 //Put the request to the Updater
 
+                PeerData.Test_mtx.acquire();
+                PeerData.DataRecv += decodedString.length();
+                PeerData.Test_mtx.release();
+
                 PeerData.queue.add(tuple);
             }
             // Get ACK message
@@ -363,9 +368,58 @@ class ThreadReceiver extends Thread{
             }
         }
         else if(Topic.equals("New_Peer")){
-            if(pid == 11){
-                //packet is of the form : [Auths,[[strlen,peer,auth],...]]
 
+        	System.out.println(pid);
+            if(pid == 11 && !PeerData.isBootsraper){
+            	PeerData.SendMtx.acquire();
+            	System.out.println("Peer LEFT!!!!!");
+                //packet is of the form : [Auths,[[strlen,peer,auth],...]]
+                Map<Integer,String> SelectedPeers = AuxilaryIpfs.Get_RMap(rbuff,bytes_array);
+                System.out.print("SELECTED PEERS : " + SelectedPeers);
+                
+                List<Integer> ChangedList = new ArrayList<>();
+                String LeavingPeer = SelectedPeers.get(-2);
+                String fileHash = SelectedPeers.get(-1);
+                int partition;
+                boolean Authchanged = false;
+                
+                SelectedPeers.remove(-2);
+                SelectedPeers.remove(-1);
+                if(LeavingPeer.equals(PeerData._ID)) {
+                	System.exit(1);
+                }
+                List<Integer> partitions = new ArrayList<>(SelectedPeers.keySet());
+                
+                for(i = 0; i < partitions.size(); i++){
+                    partition = partitions.get(i);
+                    if(SelectedPeers.get(partition).equals(PeerData._ID)) {
+                        System.out.println("Selected for responsibility of : " + partition);
+                        if (!PeerData.Auth_List.contains(partition)) {
+                            PeerData.Auth_List.add(partition);
+                            PeerData.UpdateQueue.add(new org.javatuples.Pair<>(1,partition));
+                            Authchanged = true;
+                        }
+                        ChangedList.add(partition);
+                    }
+                    else{
+                        PeerData.Partition_Availability.get(partition).add(SelectedPeers.get(partition));
+                        if(!PeerData.Swarm_Peer_Auth.containsKey(SelectedPeers.get(partition))){
+                            PeerData.Swarm_Peer_Auth.put(SelectedPeers.get(partition),new ArrayList<>());
+                        }
+                        PeerData.Swarm_Peer_Auth.get(SelectedPeers.get(partition)).add(partition);
+                    }
+                    PeerData.Partition_Availability.get(partition).remove(LeavingPeer);
+                    PeerData.Swarm_Peer_Auth.remove(LeavingPeer);
+                }
+                if(Authchanged){
+                    LeavingPeer = "LeavingPeer";
+                    Map<Integer,List<Double>> parameters = AuxilaryIpfs.DownloadMapParameters(fileHash);
+                    for(i = 0; i < ChangedList.size(); i++){
+                        PeerData.queue.add(new Triplet<>(LeavingPeer,ChangedList.get(i),parameters.get(ChangedList.get(i))));
+                    }
+                    ipfs.pubsub.pub("Authorities",AuxilaryIpfs.Marshall_Packet(PeerData.Auth_List,null,ipfs.id().get("ID").toString(),(short) 2));
+                }
+                PeerData.SendMtx.release();
             }
             else {
                 //useless short, (reply-request)
@@ -753,6 +807,10 @@ public class IPLS {
         }
 
 
+        PeerData.Test_mtx.acquire();
+        PeerData.RecvList.add(PeerData.DataRecv);
+        PeerData.DataRecv = 0;
+        PeerData.Test_mtx.release();
         PeerData.SendMtx.acquire();
         for(i = 0; i < Partitions.size(); i++){
             if(PeerData.Partition_Availability.get(Partitions.get(i)).size() == 0){
@@ -771,6 +829,7 @@ public class IPLS {
             }
         }
         PeerData.sendingGradients = true;
+
         PeerData.SendMtx.release();
         PeerData.GradientPartitions = GradientPartitions;
 
@@ -830,20 +889,20 @@ public class IPLS {
     public List<Integer> Least_Replicated_Authorities(){
         List<Integer> Auth = new ArrayList<>();
         double mean = Mean_of_partition_Replication();
-
+        System.out.println("MEAN : " + mean);
         for(int i = 0; i < PeerData.Auth_List.size(); i++){
-            if(PeerData.Partition_Availability.get(i).size() < mean){
-                Auth.add(PeerData.Partition_Availability.get(i).size());
+            if(PeerData.Partition_Availability.get(PeerData.Auth_List.get(i)).size() < mean){
+                Auth.add(PeerData.Auth_List.get(i));
             }
         }
+        System.out.println(Auth);
         return  Auth;
     }
 
+    //Find the peers that you want to hold your responsibilities
     public Map<Integer,String> Find_Candidates(){
         List<String> Candidates = new ArrayList<>();
-
         List<Integer> Least_Replicated = Least_Replicated_Authorities();
-
         //Initialize priority queue, of the form (Peer,Auth_Size), and put all known peers
         PriorityQueue<org.javatuples.Pair<String,Integer>> queue = new PriorityQueue<>(new Comparator<org.javatuples.Pair<String, Integer>>() {
             @Override
@@ -851,28 +910,59 @@ public class IPLS {
                 return objects.getValue1()-t1.getValue1();
             }
         });
+        PriorityQueue<org.javatuples.Pair<String,Integer>> helpQueue = queue;
 
         List<String> Peers = new ArrayList<>(PeerData.Swarm_Peer_Auth.keySet());
+        Map<Integer,String> Candidates_Map = new HashMap<>();
+        Pair<String,Integer> Peer = null;
 
+        //add the elements into the priority queue
         for(int i = 0; i < Peers.size(); i++){
-            queue.add(new Pair<>(Peers.get(i),PeerData.Swarm_Peer_Auth.get(Peers.get(i)).size()));
+            if(!PeerData.Bootstrapers.contains(Peers.get(i))) {
+            	queue.add(new Pair<>(Peers.get(i),PeerData.Swarm_Peer_Auth.get(Peers.get(i)).size()));
+            }
         }
 
-        for(int i = 0; i < Least_Replicated.size(); i++){
-            
+        //For each partition, select the peer that holds the
+        // Least used partitions and also, does not hold the
+        // partition. (In the future we should enhance the critiria)
+        for (int i = 0; i < Least_Replicated.size(); i++) {
+            for (int j = 0; j < queue.size(); j++) {
+                Peer = helpQueue.remove();
+                if (!PeerData.Swarm_Peer_Auth.get(Peer.getValue0()).contains(Least_Replicated.get(i))) {
+                    Candidates_Map.put(Least_Replicated.get(i), Peer.getValue0());
+                    queue.remove(Peer);
+                    queue.add(new Pair<>(Peer.getValue0(), Peer.getValue1() + 1));
+                    break;
+                }
+            }
+            helpQueue = queue;
         }
 
-        return null;
+        return Candidates_Map;
     }
 
     //In terminate, we must select peers that you want to give to the partitions that you are
     //  responsible for. After selecting them you upload your weights, publish a NEW_PEERS message and terminate .
     //Upon receiving the NEW_PEERS message, check if peer selected you,and then take the responsibility
-    public void terminate(){
-        Map<Integer,String> candidate_peers = new HashMap<>();
-        //map = FIND_CANDIDATE_PEERS();
-
-
+    public void terminate() throws Exception {
+        Map<Integer,String> candidate_peers = Find_Candidates();
+        Multihash hash;
+        List<String> Peers = new ArrayList<>();
+        List<Integer> Auth = new ArrayList<>(candidate_peers.keySet());
+        for(int i = 0; i < Auth.size(); i++){
+            Peers.add(candidate_peers.get(Auth.get(i)));
+        }
+        System.out.println(candidate_peers);
+        hash = save_model();
+        Peers.add(hash.toString());
+        Peers.add(PeerData._ID);
+        System.out.println(Peers);
+        System.out.println(Auth);
+        ipfs.pubsub.pub("New_Peer",ipfsClass.Marshall_Packet(Auth,Peers));
+        System.out.println("Shutting Down...");
+        Thread.sleep(5000);
+        System.exit(1);
     }
 
 
@@ -905,8 +995,9 @@ public class IPLS {
 
         PeerData._ID = ipfs.id().get("ID").toString();
         
-        
-        
+        System.out.println("ID : " + PeerData._ID);
+        System.out.println("Swarm : " + ipfs.swarm.peers());
+        System.out.println("IPFS version : " + ipfs.version());
         
         //==============================//
 
@@ -924,7 +1015,7 @@ public class IPLS {
         //For now we pick the weights from a file
         //****************************************************//
 
-        FileInputStream fin = new FileInputStream("ETHModel");
+        FileInputStream fin = new FileInputStream("/home/christodoulospappas99/ETHModel");
         ObjectInputStream oin = new ObjectInputStream(fin);
 
         List<Double> Lmodel = (List<Double>)oin.readObject();
@@ -1031,6 +1122,7 @@ public class IPLS {
                 PeerData.Auth_List.add(i);
             }
         }
+        
         SwarmManagerThread = new SwarmManager();
         SwarmManagerThread.start();
         System.out.println("Swarm Manager Started...");
