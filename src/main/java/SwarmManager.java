@@ -56,13 +56,22 @@ public class SwarmManager extends Thread{
         for(i = 0; i < Peers.size(); i++){
             ExistingPeers.add(Peers.get(i).id.toString());
         }
-        System.out.println(ExistingPeers);
         //Check peers who don't exist in existing peers
         for(i = 0; i < PeerData.Existing_peers.size(); i++){
             if(!ExistingPeers.contains(PeerData.Existing_peers.get(i))){
                 Crashed.add(PeerData.Existing_peers.get(i));
             }
         }
+        
+        PeerData.SendMtx.acquire();
+        for(i = 0; i < PeerData.Leaving_peers.size(); i++) {
+        	if(!Crashed.contains(PeerData.Leaving_peers.get(i))) {
+        		Crashed.add(PeerData.Leaving_peers.get(i));
+        	}
+        }
+        PeerData.Leaving_peers.clear();
+        PeerData.SendMtx.release();
+        
         remove_from_data_structures(Crashed);
 
         return Crashed;
@@ -155,8 +164,8 @@ public class SwarmManager extends Thread{
             try {
                 Thread.sleep(400);
                 Crashed = CrashedPeers();
-                System.out.println("Swarm manager " + PeerData.Existing_peers);
-                System.out.println(Crashed);
+                //System.out.println("Swarm manager " + PeerData.Existing_peers);
+                //System.out.println(Crashed);
                 if(Crashed != null && Crashed.size() != 0) {
                     System.out.println("Crashed Peer detected " + Crashed);
                     GapPartitions = Find_Gap_Partitions();

@@ -51,7 +51,7 @@ public class MyIPFSClass {
         return  add_file(filename);
     }
 
-    public static List<Double> DownloadParameters(String hash) throws IOException, ClassNotFoundException {
+    public  List<Double> DownloadParameters(String hash) throws IOException, ClassNotFoundException {
         //IPFS ipfsObj = new IPFS("/ip4/127.0.0.1/tcp/5001");
         byte[] data;
         Multihash rhash = Multihash.fromBase58(hash);
@@ -59,6 +59,16 @@ public class MyIPFSClass {
         ByteArrayInputStream bis = new ByteArrayInputStream(data);
         ObjectInput in = new ObjectInputStream(bis);
         return (List<Double>) in.readObject();
+    }
+
+    public  Map<Integer,List<Double>> DownloadMapParameters(String hash) throws IOException, ClassNotFoundException {
+        //IPFS ipfsObj = new IPFS("/ip4/127.0.0.1/tcp/5001");
+        byte[] data;
+        Multihash rhash = Multihash.fromBase58(hash);
+        data = ipfsObj.cat(rhash);
+        ByteArrayInputStream bis = new ByteArrayInputStream(data);
+        ObjectInput in = new ObjectInputStream(bis);
+        return (Map<Integer,List<Double>>) in.readObject();
     }
 
     public static void get_content() throws IOException {
@@ -318,7 +328,7 @@ public class MyIPFSClass {
     }
 
     public static String Marshall_Packet(List<Integer> Auth,List<String> Peers){
-        ByteBuffer buff = ByteBuffer.allocate((Auth.size())*Integer.BYTES  + (3 + Peers.size())*Short.BYTES);
+        ByteBuffer buff = ByteBuffer.allocate((Auth.size())*Integer.BYTES  + (2 + Peers.size())*Short.BYTES);
         byte[] finalbarr;
         int counter = 0;
         int data_size = 0;
@@ -328,7 +338,7 @@ public class MyIPFSClass {
         for(int i = 0; i < Auth.size(); i++){
             buff.putInt(2*Short.BYTES + i*Integer.BYTES, Auth.get(i));
         }
-        for(int i = 0; i < Auth.size()+1; i++){
+        for(int i = 0; i < Auth.size()+2; i++){
             buff.putShort((2+i)*Short.BYTES + Auth.size()*Integer.BYTES , (short)Peers.get(i).length());
             data_size += Peers.get(i).length();
         }
@@ -460,16 +470,18 @@ public class MyIPFSClass {
         int counter= 0;
 
         size = rbuff.getShort();
+        System.out.println(size);
         for(int i = 0; i < size; i++){
             Auth.add(rbuff.getInt());
         }
-        for(int i = 0; i < size+1; i++){
+        for(int i = 0; i < size+2; i++){
             Peer_Lengths.add(rbuff.getShort());
         }
+        System.out.println(Peer_Lengths);
 
-        counter = (size+2)*Short.BYTES + (size+1)*Integer.BYTES;
+        counter = (size+4)*Short.BYTES + size*Integer.BYTES;
 
-        for(int i = 0; i < size+1; i++){
+        for(int i = 0; i < size+2; i++){
             byte[] StringBytes = new byte[Peer_Lengths.get(i)];
             for(int j = 0; j < Peer_Lengths.get(i); j++){
                 StringBytes[j] = bytes_array[counter];
@@ -477,11 +489,12 @@ public class MyIPFSClass {
             }
             Peers.add(new String(StringBytes));
         }
-
+        System.out.println(Peers);
         for(int i = 0; i < size; i++){
             Responsibilities.put(Auth.get(i),Peers.get(i));
         }
         Responsibilities.put(-1,Peers.get(size));
+        Responsibilities.put(-2,Peers.get(size+1));
         return Responsibilities;
     }
 

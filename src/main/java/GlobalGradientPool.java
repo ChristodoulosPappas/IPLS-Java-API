@@ -42,10 +42,13 @@ class GGP_Receiver extends Thread{
                 rbuff.getShort();
                 Triplet<String,Integer, List<Double>> tuple = ipfsClass.Get_Gradients(rbuff,bytes_array);
                 System.out.println(tuple.getValue1());
+                if(PeerData.isBootsraper) {
+                	tuple = null; 
+                	continue;
+                }
                 if(!tuple.getValue0().equals(PeerData._ID)){
                     tuple.setAt0(null);
                     PeerData.queue.add(tuple);
-                    System.out.println("Global Gradient : " + tuple.getValue1());
                 }
                 else{
                     tuple = null;

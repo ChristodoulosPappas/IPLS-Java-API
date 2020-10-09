@@ -11,7 +11,7 @@ import java.util.List;
 public class Updater extends Thread{
     IPFS ipfs;
     MyIPFSClass ipfsClass;
-
+    double a = 0.6;
 
 
     public Multihash _Upload_File(List<Double> Weights, MyIPFSClass ipfsClass, String filename) throws IOException {
@@ -27,12 +27,20 @@ public class Updater extends Thread{
 
     public void _Update(List<Double> Gradient,int Partiton,String Origin){
         int i,counter = 0;
-        if(Origin != null) {
+        //Aggregate weights from a leaving peer
+        if(Origin.equals("LeavingPeer")){
+            for(i = 0; i < PeerData.Weights.get(Partiton).size(); i++){
+                PeerData.Weights.get(Partiton).set(i, a*PeerData.Weights.get(Partiton).get(i) + (1-a)*Gradient.get(i));
+            }
+        }
+        //Aggregate gradients from other peers requests
+        else if(Origin != null) {
             for (i = 0; i < PeerData.Weights.get(Partiton).size(); i++) {
                 PeerData.Weights.get(Partiton).set(i, PeerData.Weights.get(Partiton).get(i) - Gradient.get(i));
                 PeerData.Aggregated_Gradients.get(Partiton).set(i, PeerData.Aggregated_Gradients.get(Partiton).get(i) + Gradient.get(i));
             }
         }
+        //Aggregate gradients from pub/sub
         else{
             for (i = 0; i < PeerData.Weights.get(Partiton).size(); i++) {
                 PeerData.Weights.get(Partiton).set(i, PeerData.Weights.get(Partiton).get(i) - Gradient.get(i));

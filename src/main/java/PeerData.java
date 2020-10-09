@@ -30,7 +30,12 @@ public class PeerData {
     public static int is_alive_counter = 0;
 
 
+    volatile public static int STATE = 0;
 
+    //These variables are used for analyzing the system
+    public static Semaphore Test_mtx = new Semaphore(1);
+    public static List<Integer> RecvList = new ArrayList<>();
+    public static int DataRecv = 0;
 
     //Blocking Queue, for any task given to the updater
     public static BlockingQueue<Triplet<String,Integer, List<Double>>> queue = new LinkedBlockingQueue<Triplet<String,Integer, List<Double>>>();
@@ -57,6 +62,8 @@ public class PeerData {
     public static List<Integer> Auth_List = new ArrayList<Integer>();
     //List of string with the unique ids of peers
     public static List<String> Existing_peers = new ArrayList<String>();
+    //Peers that left must also be removed from data structures
+    public static List<String> Leaving_peers = new ArrayList<String>();
     public static List<String> Bootstrapers = new ArrayList<>();
     public static List<Peer> peers = new ArrayList<Peer>();
     //Hash table in the form : [Authority_id,[Selected_Peers]]

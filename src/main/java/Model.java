@@ -1,10 +1,8 @@
 import io.ipfs.api.Sub;
 import io.ipfs.multihash.Multihash;
-import jdk.nashorn.internal.ir.Labels;
+//import jdk.nashorn.internal.ir.Labels;
 import org.deeplearning4j.datasets.iterator.INDArrayDataSetIterator;
-import org.deeplearning4j.datasets.iterator.impl.EmnistDataSetIterator;
-import org.deeplearning4j.datasets.iterator.impl.LFWDataSetIterator;
-import org.deeplearning4j.datasets.iterator.impl.MnistDataSetIterator;
+import org.deeplearning4j.datasets.iterator.impl.*;
 import org.deeplearning4j.datasets.iterator.impl.LFWDataSetIterator;
 import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
 import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
@@ -36,10 +34,7 @@ import io.ipfs.api.IPFS;
 import io.ipfs.multiaddr.MultiAddress;
 import org.nd4j.shade.guava.primitives.Doubles;
 
-import java.io.FileOutputStream;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.io.ObjectOutputStream;
+import java.io.*;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
@@ -47,49 +42,65 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 import static org.deeplearning4j.datasets.iterator.impl.EmnistDataSetIterator.Set.LETTERS;
 
+class Console extends Thread{
+	
+	
+    public void run(){
+        System.out.println("Press Any Key to continue... ");
+        while(true){
+            try{
+
+                BufferedReader bufferRead = new BufferedReader(new InputStreamReader(System.in));
+                String s = bufferRead.readLine();
+                PeerData.STATE = 1;
+                System.out.print("Ok");
+                if(s.equals("exit")) {
+                	System.out.println("Exiting");
+                	PeerData.STATE = 2;
+                	Model.ipls.terminate();
+					System.exit(1);
+                }
+            }
+            catch(IOException e)
+            {
+                e.printStackTrace();
+                
+            }
+            catch (NullPointerException e){
+                System.out.println("null");
+                //PeerData.STATE = 2;
+                //try {
+				//	Model.ipls.terminate();
+				//} catch (Exception e1) {
+					// TODO Auto-generated catch block
+				//	e1.printStackTrace();
+				//}
+				
+            	//System.exit(1);
+                //return;
+            } catch (Exception e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+        }
+    }
+
+}
+
+
 
 public class Model {
-    //private static Logger log = LoggerFactory.getLogger(MNISTDoubleLayer.class);
-    public static Multihash _Upload_File(List<Double> Weights, MyIPFSClass ipfsClass, String filename) throws IOException {
-        //Serialize the Partition model into a file
-        FileOutputStream fos = new FileOutputStream(filename);
-        ObjectOutputStream oos = new ObjectOutputStream(fos);
-        oos.writeObject(Weights);
-        oos.close();
-        fos.close();
-        // Add file into ipfs system
-        return  ipfsClass.add_file(filename);
+	public static IPLS ipls;
+	
+    public static INDArray GetDiff(INDArray Dumm,INDArray model){
+        return model.sub(Dumm);
+    }
+    public static INDArray GetGrad(MultiLayerNetwork model){
+        return model.getGradientsViewArray();
     }
 
-    public static Triplet<Integer,String,String> Get_ACK(ByteBuffer rbuff, byte[] bytes_array){
-        int Partition,i;
-        short Hashsize,OriginPeerSize;
-        String Hash,Origin_Peer;
-        Hashsize = rbuff.getShort();
-        OriginPeerSize = rbuff.getShort();
-        Partition = rbuff.getInt();
 
-        byte[] Id_array = new byte[bytes_array.length -  Integer.BYTES - 3*Short.BYTES - OriginPeerSize];
-        byte[] Origin_array = new byte[bytes_array.length-  Integer.BYTES - 3*Short.BYTES - Hashsize];
-        System.out.println(Hashsize);
-        System.out.println(OriginPeerSize);
-
-        System.out.println(bytes_array.length -  Integer.BYTES - 3*Short.BYTES - OriginPeerSize);
-
-        for (i =  Integer.BYTES + 3*Short.BYTES; i < Integer.BYTES + 3*Short.BYTES + Hashsize; i++) {
-            Id_array[i -  Integer.BYTES - 3*Short.BYTES] = bytes_array[i];
-        }
-        for (i = Integer.BYTES + 3*Short.BYTES + Hashsize; i < bytes_array.length; i++){
-            Origin_array[i - Integer.BYTES - 3*Short.BYTES - Hashsize] = bytes_array[i];
-        }
-
-        Hash = new String(Id_array);
-        System.out.println("HASH : " + Hash + " , " + Hash.length());
-        Origin_Peer = new String(Origin_array);
-        return new Triplet<>(Partition,Hash,Origin_Peer);
-    }
-
-    public static void main(String[] args) throws Exception {
+    public void main(String[] args) throws Exception {
         String Path = args[0];
         List<String> Bootstrapers = new ArrayList<>();
         boolean isBootstraper;
@@ -262,6 +273,26 @@ public class Model {
             }
 
         }
+        else if(args[i].equals("u")){
+        	int dataset_size = new Integer(args[i+1]);
+        	Random rn = new Random();
+        	int pos,index = 0;
+        	int n = 10000;
+        	List<Integer> DataPool = new ArrayList<>();
+        	for(i = 0; i < n; i++) {
+        		DataPool.add(i);
+        	}
+        	Input = Nd4j.zeros(dataset_size,784);
+        	Output = Nd4j.zeros(dataset_size,10);
+        	for(i = 0; i < dataset_size ; i++ ) {
+        		pos = rn.nextInt()%n;
+        		Input.putRow(index, TotalInput.getRow(DataPool.get(pos)));
+        		Output.putRow(index, TotalLabels.getRow(DataPool.get(pos)));
+        		n--;
+        		index++;
+        		DataPool.remove(pos);
+        	}
+        }
         else{
             List<Integer> Partitions = new ArrayList<>();
             int[] arr = new int[10];
@@ -326,35 +357,15 @@ public class Model {
         INDArray gradient2 = Nd4j.zeros(1,443610);
         INDArray gradient = Nd4j.zeros(1,443610);
         Random rand = new Random();
-
-
-
-        int randomNum ;
         List<Double> arr = new ArrayList<>();
         List<Double> acc = new ArrayList<>();
 
-        for(i = 0; i < 500; i++){
-            if(i%10 == 0){
-                System.out.println("Evaluate model....");
-
-                Evaluation eval = model.evaluate(mnistTest);
-                System.out.println(eval.stats());
-                System.out.println(eval.accuracy());
-                acc.add(eval.accuracy());
-                System.out.println("****************Example finished********************");
-
-            }
-            model.fit(TotalInput,TotalLabels);
-            model.fit(TotalInput,TotalLabels);
-            model.fit(TotalInput,TotalLabels);
-            model.fit(TotalInput,TotalLabels);
 
 
-        }
-        /*
 
 
-        IPLS ipls = new IPLS();
+       ipls = new IPLS();
+        
         ipls.init(Path,Bootstrapers,isBootstraper);
         if(isBootstraper){
             while (true){
@@ -362,9 +373,34 @@ public class Model {
             }
         }
 
+        //Console console = new Console();
+        //console.start();
 
-        System.out.println(model.params());
+        //while(PeerData.STATE == 0){
+        //	Thread.yield();
+        //}
+        DataSet myData = new DataSet(Input,Output);
+        List<DataSet> Dlist = myData.asList();
+        DataSetIterator mni = new ListDataSetIterator(Dlist,100);
+                /*
         for(i = 0; i < 500; i++){
+        	arr = Doubles.asList(model.params().toDoubleVector());
+            for(int j = 0; j < model.params().length(); j++){
+                Dumm.put(0,j,arr.get(j));
+            }
+            model.setParams(Dumm);
+            model.fit(mni,1);
+            gradient = GetDiff(Dumm,model.params());
+            model.setParams(Dumm.add(gradient));
+            Evaluation eval = model.evaluate(mnistTest);
+            System.out.println(eval.stats());
+            System.out.println(eval.accuracy());
+            acc.add(eval.accuracy());
+            System.out.println("****************Example finished********************");
+        }
+       */
+       System.out.println(model.params());
+        for(i = 0; i < 100; i++){
             arr = ipls.GetPartitions();
             for(int j = 0; j < model.params().length(); j++){
                Dumm.put(0,j,arr.get(j));
@@ -373,24 +409,25 @@ public class Model {
             model.setParams(Dumm);
             System.out.println(model.params());
             System.out.println(Dumm);
-            if(i%10 == 0){
-                System.out.println("Evaluate model....");
+            
+            System.out.println("Evaluate model....");
 
-                Evaluation eval = model.evaluate(mnistTest);
-                System.out.println(eval.stats());
-                System.out.println(eval.accuracy());
-                acc.add(eval.accuracy());
-                System.out.println("****************Example finished********************");
+            Evaluation eval = model.evaluate(mnistTest);
+            System.out.println(eval.stats());
+            System.out.println(eval.accuracy());
+            acc.add(eval.accuracy());
+            System.out.println("****************Example finished********************");
 
-            }
             //System.out.println(arr.size());
             //HERE MUST GO GET PARTITIONS
             //model.setParams(UPDATED_WEIGHTS);
             //System.out.println("Starting Iteration");
-            model.fit(Input,Output);
+            model.fit(mni,1);
             System.out.println(model.params());
             //Thread.sleep(5000);
-            gradient = model.getGradientsViewArray();
+            //gradient = model.getGradientsViewArray();
+            gradient = GetDiff(model.params(),Dumm);
+            gradient = gradient.mul(0.0866);
             //HERE GO UPDATE METHOD
             System.out.println("ITERATION : " + i);
             ipls.UpdateGradient(Doubles.asList(gradient.getRow(0).toDoubleVector()));
@@ -409,19 +446,23 @@ public class Model {
         System.out.println(eval.stats());
         System.out.println("****************Example finished********************");
 
-
-
-
-        FileOutputStream fos = new FileOutputStream("ChartData");
+        File f = new File("/home/christodoulospappas99/DataRecv"+PeerData._ID);
+        f.createNewFile();
+        
+        FileOutputStream fos = new FileOutputStream("DataRecv"+PeerData._ID);
         ObjectOutputStream oos = new ObjectOutputStream(fos);
-        oos.writeObject(acc);
+        oos.writeObject(PeerData.RecvList);
         oos.close();
         fos.close();
 
-
-
-         */
-
+        f = new File("/home/christodoulospappas99/ChartData" + PeerData.Path);
+        f.createNewFile();
+        
+        fos = new FileOutputStream("/home/christodoulospappas99/ChartData" + PeerData._ID);
+        oos = new ObjectOutputStream(fos);
+        oos.writeObject(acc);
+        oos.close();
+        fos.close();
 
 
 
