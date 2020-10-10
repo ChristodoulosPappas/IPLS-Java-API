@@ -91,7 +91,9 @@ class Console extends Thread{
 
 public class Model {
 	public static IPLS ipls;
-	
+    public static String topic;
+    public  static MultiLayerNetwork model;
+
     public static INDArray GetDiff(INDArray Dumm,INDArray model){
         return model.sub(Dumm);
     }
@@ -100,14 +102,41 @@ public class Model {
     }
 
 
-    public void main(String[] args) throws Exception {
+    //For computational server
+    public static BlockingQueue<String> queue = new LinkedBlockingQueue<String>();
+    public static String taskReply;
+
+    public static void remote_fit() throws Exception {
+        IPFS ipfs = new IPFS(PeerData.Path);
+        FileOutputStream fos = new FileOutputStream(topic);
+        ObjectOutputStream oos = new ObjectOutputStream(fos);
+        oos.writeObject((INDArray)model.params());
+        System.out.println("old params");
+        System.out.println(model.params());
+        oos.close();
+        fos.close();
+        ipfs.pubsub.pub("server",topic);
+        taskReply = queue.take();
+        System.out.println(taskReply);
+        FileInputStream bis = new FileInputStream(topic);
+        ObjectInput in = new ObjectInputStream(bis);
+        model.setParams((INDArray) in.readObject());
+        System.out.println(model.params());
+        System.out.println("new params");
+    }
+
+    public static void local_fit(DataSetIterator mni){
+        model.fit(mni,1);
+    }
+
+    public static void main(String[] args) throws Exception {
         String Path = args[0];
         List<String> Bootstrapers = new ArrayList<>();
         boolean isBootstraper;
         final int numRows = 28;
         final int numColumns = 28;
         int outputNum = 10; // number of output classes
-        int batchSize = 60; // batch size for each epoch
+        int batchSize = 100; // batch size for each epoch
         int rngSeed = 123; // random number seed for reproducibility
         int numEpochs = 15; // number of epochs to perform
         double rate = 0.0015; // learning rate
@@ -117,12 +146,52 @@ public class Model {
         try {
             //Get the DataSetIterators:
 
-            lfw = new EmnistDataSetIterator(LETTERS,batchSize,true);
+            //lfw = new EmnistDataSetIterator(LETTERS,batchSize,true);
+           /*
+           if(true) {
+            	System.out.println("ok");
+            	mnistTrain = new MnistDataSetIterator(batchSize, true, rngSeed);
+            	mnistTest = new MnistDataSetIterator(batchSize, false, rngSeed);
 
-            mnistTrain = new MnistDataSetIterator(batchSize, true, rngSeed);
-            // System.out.println(mnistTrain.next(1).getLabels().toStringFull());
+            	FileOutputStream mos = new FileOutputStream("MnistDataset");
+                ObjectOutputStream mfos = new ObjectOutputStream(mos);
+                mfos.writeObject((DataSetIterator)mnistTrain);
+                mfos.close();
+                mos.close();
+                int c = 0;
+                while (mnistTrain.hasNext()){
+                   System.out.println(c++);
+                   mnistTrain.next();
+                }
+                mos = new FileOutputStream("MnistTrain");
+                mfos = new ObjectOutputStream(mos);
+                mfos.writeObject((DataSetIterator)mnistTest);
+                mfos.close();
+                mos.close();
+                
+                return;
+
+            }
+
+            */
+            DataSetIterator mnistTrain2 = new MnistDataSetIterator(batchSize, true, rngSeed);
+            DataSetIterator mnistTest2 = new MnistDataSetIterator(batchSize, false, rngSeed);
+
+            //mnistTrain = new MnistDataSetIterator(batchSize, true, rngSeed);
+        	//mnistTest = new MnistDataSetIterator(batchSize, false, rngSeed);
+        	
+            FileInputStream fis = new FileInputStream("MnistDataset");
+            ObjectInput fin = new ObjectInputStream(fis);
+            mnistTrain = (DataSetIterator) fin.readObject();
+            
+            //System.out.println(mnistTrain.next(1).getLabels().toStringFull());
             //System.out.println(mnistTrain.next(1).getFeatures().toStringFull());
-            mnistTest = new MnistDataSetIterator(batchSize, false, rngSeed);
+            fis = new FileInputStream("MnistTest");
+            fin = new ObjectInputStream(fis);
+            mnistTest = (DataSetIterator) fin.readObject();
+           
+            
+            
         }
         catch (Exception e){
             System.out.println("Could not find iterator ");
@@ -130,15 +199,19 @@ public class Model {
 
         //MNiST : 1000
         //lfw : 1480
+        topic = args[1];
+        Sub SUB = new Sub(args[1]+"reply",Path,queue,true);
+        SUB.start();
 
         Class c = Class.forName("Model");
         System.out.println(c.getClass().getCanonicalName());
-        for(i = 1; i < args.length-1; i++){
+        for(i = 2; i < args.length-1; i++){
             if(args[i].equals("p") || args[i].equals("d") || args[i].equals("r")){
                 break;
             }
             Bootstrapers.add(args[i]);
         }
+
 
         i++;
         PeerData._PARTITIONS = new Integer(args[i]);
@@ -178,7 +251,7 @@ public class Model {
                         .build())
                 .build();
 
-        MultiLayerNetwork model = new MultiLayerNetwork(conf);
+        model = new MultiLayerNetwork(conf);
         model.init();
         model.setListeners(new ScoreIterationListener(1));  //print the score with every iteration
 
@@ -239,8 +312,8 @@ public class Model {
          */
 
 
-        INDArray TotalInput = Nd4j.zeros(10000,784);
-        INDArray TotalLabels = Nd4j.zeros(10000,10);
+        INDArray TotalInput = Nd4j.zeros(60000,784);
+        INDArray TotalLabels = Nd4j.zeros(60000,10);
         INDArray batchIn = Nd4j.zeros(100,784);
         INDArray batchOut = Nd4j.zeros(100,10);
 
@@ -252,8 +325,8 @@ public class Model {
         DataSet Data;
 
 
-        for(int k = 0; k < 1000 && mnistTest.hasNext(); k++){
-            Data = mnistTest.next();
+        for(int k = 0; k < 600 && mnistTrain.hasNext(); k++){
+            Data = mnistTrain.next();
             for(int j = 0; j < Data.getFeatures().rows(); j++){
                 TotalInput.putRow(counter,Data.getFeatures().getRow(j));
                 TotalLabels.putRow(counter,Data.getLabels().getRow(j));
@@ -382,7 +455,13 @@ public class Model {
         DataSet myData = new DataSet(Input,Output);
         List<DataSet> Dlist = myData.asList();
         DataSetIterator mni = new ListDataSetIterator(Dlist,100);
-                /*
+
+        FileOutputStream fos = new FileOutputStream(topic+"data");
+        ObjectOutputStream oos = new ObjectOutputStream(fos);
+        oos.writeObject(mni);
+        oos.close();
+        fos.close();
+        /*
         for(i = 0; i < 500; i++){
         	arr = Doubles.asList(model.params().toDoubleVector());
             for(int j = 0; j < model.params().length(); j++){
@@ -417,12 +496,12 @@ public class Model {
             System.out.println(eval.accuracy());
             acc.add(eval.accuracy());
             System.out.println("****************Example finished********************");
-
+            remote_fit();
             //System.out.println(arr.size());
             //HERE MUST GO GET PARTITIONS
             //model.setParams(UPDATED_WEIGHTS);
             //System.out.println("Starting Iteration");
-            model.fit(mni,1);
+
             System.out.println(model.params());
             //Thread.sleep(5000);
             //gradient = model.getGradientsViewArray();
@@ -449,8 +528,8 @@ public class Model {
         File f = new File("/home/christodoulospappas99/DataRecv"+PeerData._ID);
         f.createNewFile();
         
-        FileOutputStream fos = new FileOutputStream("DataRecv"+PeerData._ID);
-        ObjectOutputStream oos = new ObjectOutputStream(fos);
+        fos = new FileOutputStream("DataRecv"+PeerData._ID);
+        oos = new ObjectOutputStream(fos);
         oos.writeObject(PeerData.RecvList);
         oos.close();
         fos.close();

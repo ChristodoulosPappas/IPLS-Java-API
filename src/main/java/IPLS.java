@@ -2,7 +2,7 @@ import io.ipfs.api.*;
 import io.ipfs.multiaddr.MultiAddress;
 import io.ipfs.multihash.Multihash;
 import org.apache.commons.math3.analysis.function.Add;
-import org.bytedeco.opencv.presets.opencv_core;
+//import org.bytedeco.opencv.presets.opencv_core;
 import org.javatuples.Pair;
 import org.javatuples.Triplet;
 
@@ -996,7 +996,6 @@ public class IPLS {
         PeerData._ID = ipfs.id().get("ID").toString();
         
         System.out.println("ID : " + PeerData._ID);
-        System.out.println("Swarm : " + ipfs.swarm.peers());
         System.out.println("IPFS version : " + ipfs.version());
         
         //==============================//
@@ -1015,7 +1014,7 @@ public class IPLS {
         //For now we pick the weights from a file
         //****************************************************//
 
-        FileInputStream fin = new FileInputStream("/home/christodoulospappas99/ETHModel");
+        FileInputStream fin = new FileInputStream("ETHModel");
         ObjectInputStream oin = new ObjectInputStream(fin);
 
         List<Double> Lmodel = (List<Double>)oin.readObject();

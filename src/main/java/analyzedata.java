@@ -1,5 +1,4 @@
 import io.ipfs.api.IPFS;
-import jnr.ffi.annotations.In;
 import org.javatuples.Pair;
 
 import java.io.FileInputStream;
@@ -67,10 +66,9 @@ public class analyzedata {
     }
 
     public static void main(String[] argc) throws Exception {
-
-        PeerData.Auth_List.add(1);
-        System.out.println(PeerData.Auth_List);
-        Thread.sleep(10000);
+        String path = argc[0];
+        IPFS ipfs = new IPFS(path);
+        ipfs.pubsub.pub("server","1");
 
     	/*
     	List<Integer> Auth = new ArrayList<>();

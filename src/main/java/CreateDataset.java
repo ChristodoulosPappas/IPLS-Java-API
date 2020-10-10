@@ -21,13 +21,17 @@ import org.nd4j.linalg.learning.config.Sgd;
 import org.nd4j.linalg.lossfunctions.LossFunctions;
 import org.nd4j.shade.guava.primitives.Doubles;
 
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.ObjectOutputStream;
 import java.util.*;
 
 import static org.deeplearning4j.datasets.iterator.impl.EmnistDataSetIterator.Set.LETTERS;
 
 public class CreateDataset {
 
-    public static void main(String[] args) throws ClassNotFoundException {
+    public static void main(String[] args) throws ClassNotFoundException, IOException {
         /*
         int i = 0;
         DataSetIterator iter = new Cifar10DataSetIterator(1, DataSetType.TRAIN);
@@ -67,57 +71,38 @@ public class CreateDataset {
 
         //MNiST : 1000
         //lfw : 1480
+        INDArray TotalInput = Nd4j.zeros(60000,784);
+        INDArray TotalLabels = Nd4j.zeros(60000,10);
+        INDArray batchIn = Nd4j.zeros(100,784);
+        INDArray batchOut = Nd4j.zeros(100,10);
 
-        Class c = Class.forName("Model");
-        System.out.println(c.getClass().getCanonicalName());
-        for(i = 1; i < args.length-1; i++){
-            if(args[i].equals("p") || args[i].equals("d") || args[i].equals("r")){
-                break;
+        INDArray Input;
+        INDArray Output;
+        INDArray Input2 = null;
+        INDArray Output2 = null;
+        int counter = 0;
+        DataSet Data;
+
+
+
+        for(int k = 0; k < 1000 && mnistTrain.hasNext(); k++){
+            Data = mnistTrain.next();
+            System.out.println(Data.getFeatures().rows());
+            for(int j = 0; j < Data.getFeatures().rows(); j++){
+                TotalInput.putRow(counter,Data.getFeatures().getRow(j));
+                TotalLabels.putRow(counter,Data.getLabels().getRow(j));
+                counter++;
             }
-            Bootstrapers.add(args[i]);
         }
+        DataSet myData = new DataSet(TotalInput,TotalLabels);
+        List<DataSet> Dlist = myData.asList();
+        DataSetIterator mni = new ListDataSetIterator(Dlist,100);
 
-        i++;
-        PeerData._PARTITIONS = new Integer(args[i]);
-        i++;
-        PeerData._MIN_PARTITIONS = new Integer(args[i]);
-        i++;
-
-        if(args[args.length-1].equals("true")){
-            System.out.println("Starting Bootstraper ...");
-            isBootstraper = true;
-            PeerData.isBootsraper = true;
-        }
-        else{
-            isBootstraper = false;
-            PeerData.isBootsraper = false;
-
-        }
-        //log.info("Build model....");
-        MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
-                .seed(rngSeed) //include a random seed for reproducibility
-                .updater(new Sgd(0.1))
-                .activation(Activation.RELU)
-                .weightInit(WeightInit.XAVIER)
-                .l2(rate * 0.005) // regularize learning model
-                .list()
-                .layer(new DenseLayer.Builder() //create the first input layer.
-                        .nIn(numRows * numColumns)
-                        .nOut(500)
-                        .build())
-                .layer(new DenseLayer.Builder() //create the second input layer
-                        .nIn(500)
-                        .nOut(100)
-                        .build())
-                .layer(new OutputLayer.Builder(LossFunctions.LossFunction.NEGATIVELOGLIKELIHOOD) //create hidden layer
-                        .activation(Activation.SOFTMAX)
-                        .nOut(outputNum)
-                        .build())
-                .build();
-
-        MultiLayerNetwork model = new MultiLayerNetwork(conf);
-        model.init();
-        model.setListeners(new ScoreIterationListener(1));  //print the score with every iteration
+        FileOutputStream fos = new FileOutputStream("MnistDataset");
+        ObjectOutputStream oos = new ObjectOutputStream(fos);
+        oos.writeObject(mni);
+        oos.close();
+        fos.close();
 
 
 		/*
@@ -176,27 +161,7 @@ public class CreateDataset {
          */
 
 
-        INDArray TotalInput = Nd4j.zeros(10000,784);
-        INDArray TotalLabels = Nd4j.zeros(10000,10);
-        INDArray batchIn = Nd4j.zeros(100,784);
-        INDArray batchOut = Nd4j.zeros(100,10);
-
-        INDArray Input;
-        INDArray Output;
-        INDArray Input2 = null;
-        INDArray Output2 = null;
-        int counter = 0;
-        DataSet Data;
-
-
-        for(int k = 0; k < 1000 && mnistTest.hasNext(); k++){
-            Data = mnistTest.next();
-            for(int j = 0; j < Data.getFeatures().rows(); j++){
-                TotalInput.putRow(counter,Data.getFeatures().getRow(j));
-                TotalLabels.putRow(counter,Data.getLabels().getRow(j));
-                counter++;
-            }
-        }
+        /*
 
 
         if(args[i].equals("r")){
@@ -316,7 +281,7 @@ public class CreateDataset {
         System.out.println(eval.accuracy());
         acc.add(eval.accuracy());
         System.out.println("****************Example finished********************");
-
+        */
     }
 
 }
