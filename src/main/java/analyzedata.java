@@ -66,9 +66,6 @@ public class analyzedata {
     }
 
     public static void main(String[] argc) throws Exception {
-        String path = argc[0];
-        IPFS ipfs = new IPFS(path);
-        ipfs.pubsub.pub("server","1");
 
     	/*
     	List<Integer> Auth = new ArrayList<>();
@@ -111,38 +108,32 @@ public class analyzedata {
             System.out.println(data1.get(i));
         }
         */
-    	/*
-        List<Double> data1 = new ArrayList<>();
-        List<Double> data2 = new ArrayList<>();
-        List<Double> data3 = new ArrayList<>();
-        List<Double> data4 = new ArrayList<>();
+    	List<Double> data = new ArrayList<>();
+        for(int i = 0; i < 50; i++){
+            data.add(0.0);
+        }
+    	for(int j = 0; j < 8; j++) {
+    	    int f = j+2;
+            List<Double> new_data = new ArrayList<>();
+            FileInputStream file = new FileInputStream("ChartData"+f);
+            ObjectInputStream in = new ObjectInputStream(file);
+            new_data = (List<Double>) in.readObject();
 
-        FileInputStream file = new FileInputStream("ChartData");
-        ObjectInputStream in = new ObjectInputStream(file);
+            System.out.println("ChartData"+f);
 
-        // Method for deserialization of object
-        data1 = (List<Double>) in.readObject();
-        file = new FileInputStream("ChartData(1)");
-        in = new ObjectInputStream(file);
-        data2 = (List<Double>) in.readObject();
+            for (int i = 0; i < 50; i++) {
+                data.set(i,data.get(i)+new_data.get(i));
+            }
+        }
 
-        file = new FileInputStream("ChartData(2)");
-        in = new ObjectInputStream(file);
-        data3 = (List<Double>) in.readObject();
-
-        file = new FileInputStream("ChartData(3)");
-        in = new ObjectInputStream(file);
-        data4 = (List<Double>) in.readObject();
-
-        for(int i = 0; i < data1.size(); i++){
-            System.out.println(data1.get(i) );
+        for(int i = 0; i < data.size(); i++){
+            System.out.println(data.get(i)/8);
         }
         System.out.println("=======================================");
         System.out.println("=======================================");
         System.out.println("=======================================");
         System.out.println("=======================================");
 
-*/
         /*
         file = new FileInputStream("non-uniform/01");
         in = new ObjectInputStream(file);

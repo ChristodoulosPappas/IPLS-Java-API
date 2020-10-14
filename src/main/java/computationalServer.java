@@ -16,6 +16,8 @@ import org.nd4j.linalg.lossfunctions.LossFunctions;
 
 import java.io.*;
 import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -26,11 +28,17 @@ public class computationalServer {
         DataSetIterator mni;
         FileInputStream bis = new FileInputStream(topic);
         ObjectInput in = new ObjectInputStream(bis);
-        model.setParams((INDArray) in.readObject());
+        INDArray params = (INDArray) in.readObject();
+        System.out.println(params.getRow(0).length());
+        model.setParams(params);
         System.out.println(model.params());
+        bis.close();
+        in.close();
         bis = new FileInputStream(topic + "data");
         in = new ObjectInputStream(bis);
         mni = (DataSetIterator)in.readObject();
+        in.close();
+        bis.close();
         model.fit(mni,1);
         System.out.println(model.params());
         System.out.println("========");
@@ -83,10 +91,11 @@ public class computationalServer {
         model = new MultiLayerNetwork(conf);
         model.init();
         model.setListeners(new ScoreIterationListener(1));  //print the score with every iteration
-
-
+        Map<String,Integer> Pmap = new HashMap<>();
+        
         Sub SUB = new Sub("server",path,queue,true);
         SUB.start();
+        int num = 0;
         while(true){
             task =  queue.take();
             JSONObject obj = new JSONObject(task);
@@ -94,9 +103,17 @@ public class computationalServer {
             encoded = (String) obj.get("data");
             decodedBytes = Base64.getUrlDecoder().decode(encoded);
             decodedString = new String(decodedBytes);
+            if(Pmap.containsKey(decodedString)){
+                num = Pmap.get(decodedString);
+                Pmap.put(decodedString,num++);
+            }
+            else{
+                Pmap.put(decodedString,1);
+            }
+
             System.out.println(decodedString);
             fit(decodedString,ipfs);
-
+            System.out.println(Pmap);
         }
     }
 

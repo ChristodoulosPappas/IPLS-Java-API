@@ -117,6 +117,7 @@ public class SwarmManager extends Thread{
                     }
                     else{
                         Peer = PeerData.Partition_Availability.get(PeerData.Wait_Ack.get(i).getValue1()).get(0);
+                        PeerData.Dealers.put(PeerData.Wait_Ack.get(i).getValue1(),Peer);
                         tuple = new org.javatuples.Pair<>(Peer,PeerData.Wait_Ack.get(i).getValue1());
                         PeerData.Wait_Ack.add(tuple);
                         PairsToRemove.add(PeerData.Wait_Ack.get(i));
@@ -159,6 +160,7 @@ public class SwarmManager extends Thread{
         List<String> NonRespondingPeers = new ArrayList<>();
         List<Integer> GapPartitions = new ArrayList<>();
         Pair<String,Integer> tuple;
+        int old_clock = PeerData._Iter_Clock;
         String Peer;
         while(true){
             try {
@@ -171,13 +173,14 @@ public class SwarmManager extends Thread{
                     GapPartitions = Find_Gap_Partitions();
                     recover_from_failure(GapPartitions,Crashed);
                 }
-                if(PeerData.Wait_Ack.size() != 0){
+                if(PeerData.Wait_Ack.size() != 0 && old_clock == PeerData._Iter_Clock){
                     PeerData.is_alive_counter++;
-                    if (PeerData.is_alive_counter == 1200) {
+                    if (PeerData.is_alive_counter == 120000) {
                         Find_Non_Responding_Peers();
                     }
                 }
                 else{
+                    old_clock = PeerData._Iter_Clock;
                     PeerData.is_alive_counter = 0;
                 }
 
