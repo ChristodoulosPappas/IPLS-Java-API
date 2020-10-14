@@ -68,6 +68,8 @@ public class PeerData {
     public static List<Peer> peers = new ArrayList<Peer>();
     //Hash table in the form : [Authority_id,[Selected_Peers]]
     public static Map<Integer,List<String>> Partition_Availability = new HashMap<Integer,List<String>>();
+    // Hash table showing the peers that the daemo communicates
+    public static Map<Integer,String> Dealers = new HashMap<Integer, String>();
     //Hash table in the form : [Swarm_Peer,[His Authority]]
     public static Map<String,List<Integer>> Swarm_Peer_Auth = new HashMap<String,List<Integer>>();
     //Hash table that contains that contains the hash value of the file, with key based on partition

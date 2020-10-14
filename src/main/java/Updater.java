@@ -73,6 +73,9 @@ public class Updater extends Thread{
                     ipfs.pubsub.pub(PeerId,ipfsClass.Marshall_Packet(PeerData.Weights.get(request.getValue1()),ipfs.id().get("ID").toString(),request.getValue1(),(short)4));
                 }
                 else if(PeerId != null){
+                	for(int i = 0; i < PeerData.Aggregated_Gradients.get(partition).size(); i++) {
+                		PeerData.Aggregated_Gradients.get(partition).set(i, 0.4*PeerData.Aggregated_Gradients.get(partition).get(i));
+                	}
                     ipfs.pubsub.pub(new Integer(partition).toString(),ipfsClass.Marshall_Packet(PeerData.Aggregated_Gradients.get(partition),ipfs.id().get("ID").toString(),partition,(short) 3));
                     //Clean Aggregated_Gradients vector
                     for(int i = 0; i < PeerData.Aggregated_Gradients.get(partition).size(); i++){

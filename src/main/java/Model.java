@@ -113,6 +113,7 @@ public class Model {
         oos.writeObject((INDArray)model.params());
         System.out.println("old params");
         System.out.println(model.params());
+        oos.flush();
         oos.close();
         fos.close();
         ipfs.pubsub.pub("server",topic);
@@ -123,6 +124,8 @@ public class Model {
         model.setParams((INDArray) in.readObject());
         System.out.println(model.params());
         System.out.println("new params");
+        in.close();
+        bis.close();
     }
 
     public static void local_fit(DataSetIterator mni){
@@ -143,6 +146,7 @@ public class Model {
         int i;
         DataSetIterator lfw = null,mnistTrain = null,mnistTest = null;
         DataSet dataset = null;
+        topic = args[1];
         try {
             //Get the DataSetIterators:
 
@@ -174,15 +178,15 @@ public class Model {
             }
 
             */
-            DataSetIterator mnistTrain2 = new MnistDataSetIterator(batchSize, true, rngSeed);
-            DataSetIterator mnistTest2 = new MnistDataSetIterator(batchSize, false, rngSeed);
-
+           
             //mnistTrain = new MnistDataSetIterator(batchSize, true, rngSeed);
         	//mnistTest = new MnistDataSetIterator(batchSize, false, rngSeed);
         	
-            FileInputStream fis = new FileInputStream("MnistDataset");
+            FileInputStream fis = new FileInputStream(topic + "TrainDataset");
             ObjectInput fin = new ObjectInputStream(fis);
             mnistTrain = (DataSetIterator) fin.readObject();
+            System.out.println(mnistTrain);
+            System.out.println("OKKKK");
             
             //System.out.println(mnistTrain.next(1).getLabels().toStringFull());
             //System.out.println(mnistTrain.next(1).getFeatures().toStringFull());
@@ -194,12 +198,15 @@ public class Model {
             
         }
         catch (Exception e){
+        	System.out.print(e);
+        	
             System.out.println("Could not find iterator ");
+            System.exit(-1);
         }
 
         //MNiST : 1000
         //lfw : 1480
-        topic = args[1];
+       
         Sub SUB = new Sub(args[1]+"reply",Path,queue,true);
         SUB.start();
 
@@ -312,8 +319,8 @@ public class Model {
          */
 
 
-        INDArray TotalInput = Nd4j.zeros(60000,784);
-        INDArray TotalLabels = Nd4j.zeros(60000,10);
+        INDArray TotalInput = Nd4j.zeros(3000,784);
+        INDArray TotalLabels = Nd4j.zeros(3000,10);
         INDArray batchIn = Nd4j.zeros(100,784);
         INDArray batchOut = Nd4j.zeros(100,10);
 
@@ -323,8 +330,7 @@ public class Model {
         INDArray Output2 = null;
         int counter = 0;
         DataSet Data;
-
-
+        
         for(int k = 0; k < 600 && mnistTrain.hasNext(); k++){
             Data = mnistTrain.next();
             for(int j = 0; j < Data.getFeatures().rows(); j++){
@@ -350,7 +356,7 @@ public class Model {
         	int dataset_size = new Integer(args[i+1]);
         	Random rn = new Random();
         	int pos,index = 0;
-        	int n = 10000;
+        	int n = 3000;
         	List<Integer> DataPool = new ArrayList<>();
         	for(i = 0; i < n; i++) {
         		DataPool.add(i);
@@ -358,7 +364,7 @@ public class Model {
         	Input = Nd4j.zeros(dataset_size,784);
         	Output = Nd4j.zeros(dataset_size,10);
         	for(i = 0; i < dataset_size ; i++ ) {
-        		pos = rn.nextInt()%n;
+        		pos = Math.abs(rn.nextInt()%n);
         		Input.putRow(index, TotalInput.getRow(DataPool.get(pos)));
         		Output.putRow(index, TotalLabels.getRow(DataPool.get(pos)));
         		n--;
@@ -452,7 +458,7 @@ public class Model {
         //while(PeerData.STATE == 0){
         //	Thread.yield();
         //}
-        DataSet myData = new DataSet(Input,Output);
+        DataSet myData = new DataSet(TotalInput,TotalLabels);
         List<DataSet> Dlist = myData.asList();
         DataSetIterator mni = new ListDataSetIterator(Dlist,100);
 
@@ -479,7 +485,7 @@ public class Model {
         }
        */
        System.out.println(model.params());
-        for(i = 0; i < 100; i++){
+        for(i = 0; i < 50; i++){
             arr = ipls.GetPartitions();
             for(int j = 0; j < model.params().length(); j++){
                Dumm.put(0,j,arr.get(j));
@@ -506,7 +512,7 @@ public class Model {
             //Thread.sleep(5000);
             //gradient = model.getGradientsViewArray();
             gradient = GetDiff(model.params(),Dumm);
-            gradient = gradient.mul(0.0866);
+            gradient = gradient.mul(0.20);
             //HERE GO UPDATE METHOD
             System.out.println("ITERATION : " + i);
             ipls.UpdateGradient(Doubles.asList(gradient.getRow(0).toDoubleVector()));
@@ -525,19 +531,19 @@ public class Model {
         System.out.println(eval.stats());
         System.out.println("****************Example finished********************");
 
-        File f = new File("/home/christodoulospappas99/DataRecv"+PeerData._ID);
+        File f = new File("DataRecv"+topic);
         f.createNewFile();
         
-        fos = new FileOutputStream("DataRecv"+PeerData._ID);
+        fos = new FileOutputStream("DataRecv"+topic);
         oos = new ObjectOutputStream(fos);
         oos.writeObject(PeerData.RecvList);
         oos.close();
         fos.close();
 
-        f = new File("/home/christodoulospappas99/ChartData" + PeerData.Path);
+        f = new File("ChartData" + topic);
         f.createNewFile();
         
-        fos = new FileOutputStream("/home/christodoulospappas99/ChartData" + PeerData._ID);
+        fos = new FileOutputStream("ChartData" + topic);
         oos = new ObjectOutputStream(fos);
         oos.writeObject(acc);
         oos.close();

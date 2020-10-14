@@ -625,7 +625,7 @@ public class IPLS {
         for(i = 0; i < _MIN_PARTITIONS; i++){
             new_key = Collections.min(Partition_Cardinality.entrySet(),Comparator.comparing(Map.Entry::getValue)).getKey();
             PeerData.Auth_List.add(new_key);
-            PeerData.Partition_Availability.remove(new_key);
+            Partition_Cardinality.remove(new_key);
         }
         ipfs.pubsub.pub("Authorities",ipfsClass.Marshall_Packet(PeerData.Auth_List,null,ipfs.id().get("ID").toString(),(short) 2));
 
@@ -817,7 +817,13 @@ public class IPLS {
                 // Crash handlinh
             }
             else{
-                Peer = PeerData.Partition_Availability.get(Partitions.get(i)).get(0);
+                if(!PeerData.Dealers.containsKey(Partitions.get(i))){
+                    int size = PeerData.Partition_Availability.get(Partitions.get(i)).size();
+                    Random rn = new Random();
+                    int pos = Math.abs(rn.nextInt()%size);
+                    PeerData.Dealers.put(Partitions.get(i),PeerData.Partition_Availability.get(Partitions.get(i)).get(pos));
+                }
+                Peer = PeerData.Dealers.get(Partitions.get(i));
                 tuple = new org.javatuples.Pair<>(Peer,Partitions.get(i));
                 PeerData.mtx.acquire();
                 PeerData.Wait_Ack.add(tuple);

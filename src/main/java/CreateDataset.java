@@ -42,7 +42,7 @@ public class CreateDataset {
         System.out.println("OK");
 
          */
-        String Path = args[0];
+        //String Path = args[0];
         List<String> Bootstrapers = new ArrayList<>();
         boolean isBootstraper;
         final int numRows = 28;
@@ -84,27 +84,60 @@ public class CreateDataset {
         DataSet Data;
 
 
-
         for(int k = 0; k < 1000 && mnistTrain.hasNext(); k++){
             Data = mnistTrain.next();
-            System.out.println(Data.getFeatures().rows());
             for(int j = 0; j < Data.getFeatures().rows(); j++){
                 TotalInput.putRow(counter,Data.getFeatures().getRow(j));
                 TotalLabels.putRow(counter,Data.getLabels().getRow(j));
                 counter++;
             }
         }
+
+
+        for(int j = 2; j < 18; j++){
+            System.out.println(j);
+            int dataset_size = 3000;
+            Random rn = new Random();
+    	    int pos,index = 0;
+    	    int n = 60000;
+    	    List<Integer> DataPool = new ArrayList<>();
+    	    for(i = 0; i < n; i++) {
+    		    DataPool.add(i);
+    	    }
+    	    Input = Nd4j.zeros(dataset_size,784);
+    	    Output = Nd4j.zeros(dataset_size,10);
+           	for(i = 0; i < dataset_size ; i++ ) {
+    		    pos = Math.abs(rn.nextInt()%n);
+    		    Input.putRow(index, TotalInput.getRow(DataPool.get(pos)));
+    	    	Output.putRow(index, TotalLabels.getRow(DataPool.get(pos)));
+    	    	n--;
+    		    index++;
+    		    DataPool.remove(pos);
+    	    }
+            DataSet myData = new DataSet(Input,Output);
+            List<DataSet> Dlist = myData.asList();
+            DataSetIterator mni = new ListDataSetIterator(Dlist,100);
+
+            FileOutputStream fos = new FileOutputStream(j+"TrainDataset");
+            ObjectOutputStream oos = new ObjectOutputStream(fos);
+            oos.writeObject(mni);
+            oos.close();
+            fos.close();
+        }
+        /*
+		#SAVE DATASETS
         DataSet myData = new DataSet(TotalInput,TotalLabels);
         List<DataSet> Dlist = myData.asList();
         DataSetIterator mni = new ListDataSetIterator(Dlist,100);
 
-        FileOutputStream fos = new FileOutputStream("MnistDataset");
+        FileOutputStream fos = new FileOutputStream("MnistTest");
         ObjectOutputStream oos = new ObjectOutputStream(fos);
         oos.writeObject(mni);
         oos.close();
         fos.close();
-
-
+		*/
+        
+        
 		/*
         // INITIALIZE ETH FILE
         List<Double> L = new ArrayList<>();
