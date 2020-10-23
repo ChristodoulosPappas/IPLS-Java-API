@@ -68,13 +68,13 @@ class Console extends Thread{
             }
             catch (NullPointerException e){
                 System.out.println("null");
-                //PeerData.STATE = 2;
-                //try {
-				//	Model.ipls.terminate();
-				//} catch (Exception e1) {
+                PeerData.STATE = 2;
+                try {
+					Model.ipls.terminate();
+				} catch (Exception e1) {
 					// TODO Auto-generated catch block
-				//	e1.printStackTrace();
-				//}
+					e1.printStackTrace();
+				}
 				
             	//System.exit(1);
                 //return;
@@ -319,8 +319,8 @@ public class Model {
          */
 
 
-        INDArray TotalInput = Nd4j.zeros(3000,784);
-        INDArray TotalLabels = Nd4j.zeros(3000,10);
+        INDArray TotalInput = Nd4j.zeros(7495,784);
+        INDArray TotalLabels = Nd4j.zeros(7495,10);
         INDArray batchIn = Nd4j.zeros(100,784);
         INDArray batchOut = Nd4j.zeros(100,10);
 
@@ -451,13 +451,14 @@ public class Model {
 
             }
         }
-
-        //Console console = new Console();
-        //console.start();
-
-        //while(PeerData.STATE == 0){
-        //	Thread.yield();
-        //}
+        /*
+        Console console = new Console();
+        console.start();
+		while(PeerData.STATE == 0){
+        	Thread.yield();
+        }
+		*/
+        
         DataSet myData = new DataSet(TotalInput,TotalLabels);
         List<DataSet> Dlist = myData.asList();
         DataSetIterator mni = new ListDataSetIterator(Dlist,100);
@@ -484,6 +485,8 @@ public class Model {
             System.out.println("****************Example finished********************");
         }
        */
+        int x = new Integer(topic);
+        Thread.sleep((50-x)*4000);
        System.out.println(model.params());
         for(i = 0; i < 50; i++){
             arr = ipls.GetPartitions();
@@ -495,13 +498,16 @@ public class Model {
             System.out.println(model.params());
             System.out.println(Dumm);
             
-            System.out.println("Evaluate model....");
+            if(x%3 == 0) {
+            	System.out.println("Evaluate model....");
 
-            Evaluation eval = model.evaluate(mnistTest);
-            System.out.println(eval.stats());
-            System.out.println(eval.accuracy());
-            acc.add(eval.accuracy());
-            System.out.println("****************Example finished********************");
+            	Evaluation eval = model.evaluate(mnistTest);
+            	System.out.println(eval.stats());
+            	System.out.println(eval.accuracy());
+            	acc.add(eval.accuracy());
+            	System.out.println("****************Example finished********************");
+            
+            }
             remote_fit();
             //System.out.println(arr.size());
             //HERE MUST GO GET PARTITIONS
@@ -512,13 +518,15 @@ public class Model {
             //Thread.sleep(5000);
             //gradient = model.getGradientsViewArray();
             gradient = GetDiff(model.params(),Dumm);
-            gradient = gradient.mul(0.20);
+            gradient = gradient.mul(1);
             //HERE GO UPDATE METHOD
             System.out.println("ITERATION : " + i);
             ipls.UpdateGradient(Doubles.asList(gradient.getRow(0).toDoubleVector()));
             System.gc();
             System.runFinalization();
-            Thread.sleep(1000);
+            if(x%3!=0) {
+            	Thread.sleep(8000);
+            }
         }
         arr = ipls.GetPartitions();
         for(int j = 0; j < model.params().length(); j++){
@@ -530,7 +538,7 @@ public class Model {
         Evaluation eval = model.evaluate(mnistTest);
         System.out.println(eval.stats());
         System.out.println("****************Example finished********************");
-
+        
         File f = new File("DataRecv"+topic);
         f.createNewFile();
         
@@ -539,7 +547,7 @@ public class Model {
         oos.writeObject(PeerData.RecvList);
         oos.close();
         fos.close();
-
+        
         f = new File("ChartData" + topic);
         f.createNewFile();
         
@@ -548,8 +556,7 @@ public class Model {
         oos.writeObject(acc);
         oos.close();
         fos.close();
-
-
+     
 
 
     }

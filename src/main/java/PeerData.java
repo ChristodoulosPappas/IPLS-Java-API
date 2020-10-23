@@ -3,7 +3,9 @@ import io.ipfs.api.Peer;
 import io.ipfs.multihash.Multihash;
 import org.javatuples.Pair;
 import org.javatuples.Triplet;
+import org.web3j.abi.datatypes.Int;
 
+import javax.naming.InsufficientResourcesException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -17,6 +19,10 @@ public class PeerData {
     public static Semaphore InitSem = new Semaphore(0);
     public static Semaphore mtx = new Semaphore(1);
     public static Semaphore SendMtx = new Semaphore(1);
+    public static Semaphore weightsMtx = new Semaphore(1);
+
+    public static Map<Integer,List<String>> workers = new HashMap<>();
+    public static Map<Integer, Double> previous_iter_active_workers = new HashMap<>();
 
     public static int _PARTITIONS;
     public static int _MIN_PARTITIONS;

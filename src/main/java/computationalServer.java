@@ -34,7 +34,7 @@ public class computationalServer {
         System.out.println(model.params());
         bis.close();
         in.close();
-        bis = new FileInputStream(topic + "data");
+        bis = new FileInputStream(topic + "TrainDataset");
         in = new ObjectInputStream(bis);
         mni = (DataSetIterator)in.readObject();
         in.close();
