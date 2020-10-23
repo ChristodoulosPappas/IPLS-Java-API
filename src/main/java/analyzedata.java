@@ -133,7 +133,13 @@ public class analyzedata {
         System.out.println("=======================================");
         System.out.println("=======================================");
         System.out.println("=======================================");
-
+        List<Double> new_data = new ArrayList<>();
+        FileInputStream file = new FileInputStream("DataRecv"+6);
+        ObjectInputStream in = new ObjectInputStream(file);
+        new_data = (List<Double>) in.readObject();
+        for(int i = 0; i < new_data.size();i++){
+            System.out.println(new_data.get(i));
+        }
         /*
         file = new FileInputStream("non-uniform/01");
         in = new ObjectInputStream(file);

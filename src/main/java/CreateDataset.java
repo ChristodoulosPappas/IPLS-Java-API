@@ -92,8 +92,89 @@ public class CreateDataset {
                 counter++;
             }
         }
+        List<Integer> Partitions = new ArrayList<>();
+        int[] arr = new int[10];
+        int[] putIndex = new int[10];
+        int index ;
+        int datasize = 0;
+        int nodes = new Integer(args[0]);
+        int[] class_data = new int[10];
+        int[] class_index = new int[10];
+        for(i = 0; i <  60000; i++){
+            arr[Doubles.asList(TotalLabels.getRow(i).toDoubleVector()).indexOf(1.0)]++;
+        }
+        Map<Integer, INDArray> DataMap = new HashMap<>();
+        Map<Integer, INDArray> LabelsMap = new HashMap<>();
+        for(i = 0 ; i < 10; i++){
+            DataMap.put(i,Nd4j.zeros(arr[i],784));
+            LabelsMap.put(i,Nd4j.zeros(arr[i],10));
+            putIndex[i] = 0;
+            System.out.println(arr[i]);
+            class_data[i] = (int)arr[i]/nodes;
+            System.out.println(class_data[i]);
+            System.out.println("=========");
 
+            class_index[i] = 0;
+        }
+        for(i = 0; i < 60000; i++){
+            index = Doubles.asList(TotalLabels.getRow(i).toDoubleVector()).indexOf(1.0);
+            DataMap.get(index).putRow(putIndex[index],TotalInput.getRow(i));
+            LabelsMap.get(index).putRow(putIndex[index],TotalLabels.getRow(i));
+            putIndex[index]++;
+        }
+        int node = 2;
 
+        for(i = 0; i < nodes; i++){
+            int dataset_size = 0;
+            for(int j =0 ; j < 10; j++){
+                dataset_size+= class_data[j];
+            }
+            System.out.println(dataset_size);
+            Input = Nd4j.zeros(dataset_size,784);
+            Output = Nd4j.zeros(dataset_size,10);
+            index= 0;
+            for(int j = 0; j < 10; j++){
+                System.out.println("Getting from : " + class_index[j] + " to " +  new Integer(class_index[j] + class_data[j]) + " of " + j);
+
+                for(int k = class_index[j]; k < class_index[j] + class_data[j] ; k++){
+                    Input.putRow(index, DataMap.get(j).getRow(k));
+                    Output.putRow(index, LabelsMap.get(j).getRow(k));
+                    index++;
+                }
+                class_index[j] += class_data[j];
+            }
+            Random rand = new Random();
+
+            for (int j = 0; j < dataset_size; j++) {
+                int randomIndexToSwap = rand.nextInt(dataset_size);
+                INDArray tempInput = Input.getRow(randomIndexToSwap);
+                INDArray tempOutput = Output.getRow(randomIndexToSwap);
+                Input.putRow(randomIndexToSwap,Input.getRow(j));
+                Output.putRow(randomIndexToSwap,Output.getRow(j));
+                Input.putRow(j,tempInput);
+                Output.putRow(j,tempOutput);
+
+            }
+            DataSet myData = new DataSet(Input,Output);
+            List<DataSet> Dlist = myData.asList();
+            DataSetIterator mni = new ListDataSetIterator(Dlist,30);
+
+            FileOutputStream fos = new FileOutputStream(node+"TrainDataset");
+            ObjectOutputStream oos = new ObjectOutputStream(fos);
+            oos.writeObject(mni);
+            oos.close();
+            fos.close();
+
+            node++;
+        }
+
+        int test =0 ;
+        for(i = 0; i < 10; i++){
+            test+= arr[i];
+        }
+        System.out.println(test);
+
+        /*
         for(int j = 2; j < 18; j++){
             System.out.println(j);
             int dataset_size = 3000;
@@ -124,6 +205,8 @@ public class CreateDataset {
             oos.close();
             fos.close();
         }
+
+         */
         /*
 		#SAVE DATASETS
         DataSet myData = new DataSet(TotalInput,TotalLabels);
