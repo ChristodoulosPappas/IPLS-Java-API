@@ -157,7 +157,7 @@ public class CreateDataset {
             }
             DataSet myData = new DataSet(Input,Output);
             List<DataSet> Dlist = myData.asList();
-            DataSetIterator mni = new ListDataSetIterator(Dlist,30);
+            DataSetIterator mni = new ListDataSetIterator(Dlist,100);
 
             FileOutputStream fos = new FileOutputStream(node+"TrainDataset");
             ObjectOutputStream oos = new ObjectOutputStream(fos);
