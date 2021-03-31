@@ -1,6 +1,7 @@
 import io.ipfs.api.Sub;
 import io.ipfs.multihash.Multihash;
 //import jdk.nashorn.internal.ir.Labels;
+import org.apache.commons.cli.*;
 import org.deeplearning4j.datasets.iterator.INDArrayDataSetIterator;
 import org.deeplearning4j.datasets.iterator.impl.*;
 import org.deeplearning4j.datasets.iterator.impl.LFWDataSetIterator;
@@ -39,8 +40,10 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import org.apache.commons.cli.*;
 
 import static org.deeplearning4j.datasets.iterator.impl.EmnistDataSetIterator.Set.LETTERS;
+
 
 class Console extends Thread{
 	
@@ -53,7 +56,8 @@ class Console extends Thread{
                 BufferedReader bufferRead = new BufferedReader(new InputStreamReader(System.in));
                 String s = bufferRead.readLine();
                 PeerData.STATE = 1;
-                System.out.print("Ok");
+                System.out.print("Ok1");
+
                 if(s.equals("exit")) {
                 	System.out.println("Exiting");
                 	PeerData.STATE = 2;
@@ -93,6 +97,9 @@ public class Model {
 	public static IPLS ipls;
     public static String topic;
     public  static MultiLayerNetwork model;
+    public static List<String> Bootstrapers = new ArrayList<>();
+    public static boolean isBootstraper;
+    public static String Path;
 
     public static INDArray GetDiff(INDArray Dumm,INDArray model){
         return model.sub(Dumm);
@@ -132,10 +139,66 @@ public class Model {
         model.fit(mni,1);
     }
 
+    public static void parse_arguments(String[] args){
+
+        Options options = new Options();
+        Option path = new Option("a", "address", true, "The address of the IPFS API");
+        path.setRequired(true);
+        options.addOption(path);
+
+        Option partitions = new Option("p", "partitions", true, "The number of partitions you want to partition the model");
+        partitions.setRequired(true);
+        options.addOption(partitions);
+
+        Option minimum_partitions = new Option("mp", "minimum_partitions", true, "The minimum number of partitions a peer required to be responsible for");
+        minimum_partitions.setRequired(true);
+        options.addOption(minimum_partitions);
+
+
+        Option is_bootstraper = new Option("b", "is_bootstraper", true, "If true then the process becomes bootstraper. Note that this process must be the first process of the system");
+        is_bootstraper.setRequired(true);
+        options.addOption(is_bootstraper);
+
+        Option min_peers = new Option("n", "min_peers", true, "The minimum number of peers required to proceed to training phase");
+        min_peers.setRequired(true);
+        options.addOption(min_peers);
+
+        Option my_id_number = new Option("topic", "id_number",true,"The id number of the peer");
+        my_id_number.setRequired(false);
+        options.addOption(my_id_number);
+
+        Option Bootstraper = new Option("bID", "Bootstraper_ID",true,"The bootstrapers hash id");
+        my_id_number.setRequired(true);
+        options.addOption(Bootstraper);
+
+
+        DefaultParser parser = new DefaultParser();
+        HelpFormatter formatter = new HelpFormatter();
+        CommandLine cmd;
+
+        try {
+            cmd = parser.parse(options, args);
+            Path = cmd.getOptionValue("address");
+            PeerData._PARTITIONS  = new Integer(cmd.getOptionValue("partitions"));
+            PeerData._MIN_PARTITIONS = new Integer(cmd.getOptionValue("minimum_partitions"));
+            isBootstraper = new Boolean(cmd.getOptionValue("is_bootstraper"));
+            PeerData.isBootsraper = isBootstraper;
+
+            PeerData.Min_Members = new Integer(cmd.getOptionValue("min_peers"));
+            topic =  cmd.getOptionValue("id_number");
+            Bootstrapers.add(cmd.getOptionValue("Bootstraper_ID"));
+
+
+
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+            formatter.printHelp("utility-name", options);
+
+            System.exit(1);
+        }
+    }
+
     public static void main(String[] args) throws Exception {
-        String Path = args[0];
-        List<String> Bootstrapers = new ArrayList<>();
-        boolean isBootstraper;
         final int numRows = 28;
         final int numColumns = 28;
         int outputNum = 10; // number of output classes
@@ -145,51 +208,16 @@ public class Model {
         double rate = 0.0015; // learning rate
         int i;
         DataSetIterator lfw = null,mnistTrain = null,mnistTest = null;
-        DataSet dataset = null;
-        topic = args[1];
+        parse_arguments(args);
         try {
-            //Get the DataSetIterators:
 
-            //lfw = new EmnistDataSetIterator(LETTERS,batchSize,true);
-           /*
-           if(true) {
-            	System.out.println("ok");
-            	mnistTrain = new MnistDataSetIterator(batchSize, true, rngSeed);
-            	mnistTest = new MnistDataSetIterator(batchSize, false, rngSeed);
 
-            	FileOutputStream mos = new FileOutputStream("MnistDataset");
-                ObjectOutputStream mfos = new ObjectOutputStream(mos);
-                mfos.writeObject((DataSetIterator)mnistTrain);
-                mfos.close();
-                mos.close();
-                int c = 0;
-                while (mnistTrain.hasNext()){
-                   System.out.println(c++);
-                   mnistTrain.next();
-                }
-                mos = new FileOutputStream("MnistTrain");
-                mfos = new ObjectOutputStream(mos);
-                mfos.writeObject((DataSetIterator)mnistTest);
-                mfos.close();
-                mos.close();
-                
-                return;
-
-            }
-
-            */
-           
-            //mnistTrain = new MnistDataSetIterator(batchSize, true, rngSeed);
-        	//mnistTest = new MnistDataSetIterator(batchSize, false, rngSeed);
-        	
             FileInputStream fis = new FileInputStream(topic + "TrainDataset");
             ObjectInput fin = new ObjectInputStream(fis);
             mnistTrain = (DataSetIterator) fin.readObject();
             System.out.println(mnistTrain);
             System.out.println("OKKKK");
             
-            //System.out.println(mnistTrain.next(1).getLabels().toStringFull());
-            //System.out.println(mnistTrain.next(1).getFeatures().toStringFull());
             fis = new FileInputStream("MnistTest");
             fin = new ObjectInputStream(fis);
             mnistTest = (DataSetIterator) fin.readObject();
@@ -206,37 +234,8 @@ public class Model {
 
         //MNiST : 1000
         //lfw : 1480
-       
-        Sub SUB = new Sub(args[1]+"reply",Path,queue,true);
-        SUB.start();
-
-        Class c = Class.forName("Model");
-        System.out.println(c.getClass().getCanonicalName());
-        for(i = 2; i < args.length-1; i++){
-            if(args[i].equals("p") || args[i].equals("d") || args[i].equals("r")){
-                break;
-            }
-            Bootstrapers.add(args[i]);
-        }
-
-
-        i++;
-        PeerData._PARTITIONS = new Integer(args[i]);
-        i++;
-        PeerData._MIN_PARTITIONS = new Integer(args[i]);
-        i++;
-
-        if(args[args.length-1].equals("true")){
-        	System.out.println("Starting Bootstraper ...");
-            isBootstraper = true;
-            PeerData.isBootsraper = true;
-        }
-        else{
-            isBootstraper = false;
-            PeerData.isBootsraper = false;
-
-        }
         //log.info("Build model....");
+        /*
         MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
                 .seed(rngSeed) //include a random seed for reproducibility
                 .updater(new Sgd(0.1))
@@ -257,66 +256,35 @@ public class Model {
                         .nOut(outputNum)
                         .build())
                 .build();
-
+		*/
+        MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
+                .seed(rngSeed) //include a random seed for reproducibility
+                .updater(new Sgd(0.1))
+                .activation(Activation.RELU)
+                .weightInit(WeightInit.XAVIER)
+                .l2(rate * 0.005) // regularize learning model
+                .list()
+                .layer(new DenseLayer.Builder() //create the first input layer.
+                        .nIn(numRows * numColumns)
+                        .nOut(100)
+                        .build())
+                .layer(new DenseLayer.Builder() //create the second input layer
+                        .nIn(100)
+                        .nOut(20)
+                        .build())
+                .layer(new OutputLayer.Builder(LossFunctions.LossFunction.NEGATIVELOGLIKELIHOOD) //create hidden layer
+                        .activation(Activation.SOFTMAX)
+                        .nOut(outputNum)
+                        .build())
+                .build();
         model = new MultiLayerNetwork(conf);
         model.init();
         model.setListeners(new ScoreIterationListener(1));  //print the score with every iteration
 
 
-		/*
-        // INITIALIZE ETH FILE
-        List<Double> L = new ArrayList<>();
-        FileOutputStream fos = new FileOutputStream("ETHModel");
-        ObjectOutputStream oos = new ObjectOutputStream(fos);
-        System.out.println(model.params().length());
-        oos.writeObject(Doubles.asList(model.params().getRow(0).toDoubleVector()));
-        oos.close();
-        fos.close();
-        //System.out.println(mnistTrain.next(10).);
-         */
+        Sub SUB = new Sub(topic+"reply",Path,queue,true);
+        SUB.start();
 
-        /*
-		// CHECKING SERIALIZATION
-        IPFS ipfs = new IPFS(Path);
-        MyIPFSClass ipfsClass = new MyIPFSClass(Path);
-        System.out.println((short) ipfs.id().get("ID").toString().length());
-        String decodedString = ipfsClass.Marshall_Packet(ipfs.id().get("ID").toString(),ipfs.id().get("ID").toString(),2,(short)3);
-        byte[] bytes_array = Base64.getUrlDecoder().decode(decodedString);
-        int OriginPeerSize,PeerSize;
-        List<Integer> Peer_Auth = new ArrayList<Integer>();
-        ByteBuffer rbuff = ByteBuffer.wrap(bytes_array);
-        String Renting_Peer = null,Origin_Peer= null;
-        //Get Pid
-        rbuff.getShort();
-        System.out.println(Get_ACK(rbuff,bytes_array));
-
-
-         */
-
-
-        /*
-
-        /// SIMPLE DEBUGING PROGRAM
-
-        First_Application IPLS = new First_Application();
-        IPLS.init(Path);
-
-        List<Double> Param = new ArrayList<>();
-        List<Double> Gradients = new ArrayList<>();
-
-        for(i = 0; i < 100; i ++){
-            Gradients.add(-1.0);
-        }
-
-        for(i = 0; i < 15; i++){
-            Param = IPLS.GetPartitions();
-            System.out.println(Param);
-            Thread.sleep(2000);
-            IPLS.UpdateGradient(Gradients);
-            Thread.sleep(4000);
-        }
-
-         */
 
 
         INDArray TotalInput = Nd4j.zeros(7495,784);
@@ -330,118 +298,13 @@ public class Model {
         INDArray Output2 = null;
         int counter = 0;
         DataSet Data;
-        
-        for(int k = 0; k < 600 && mnistTrain.hasNext(); k++){
-            Data = mnistTrain.next();
-            for(int j = 0; j < Data.getFeatures().rows(); j++){
-                TotalInput.putRow(counter,Data.getFeatures().getRow(j));
-                TotalLabels.putRow(counter,Data.getLabels().getRow(j));
-                counter++;
-            }
-        }
 
-
-        if(args[i].equals("r")){
-            int begin = new Integer(args[i+1]);
-            int end = new Integer(args[i+2]);
-            Input = Nd4j.zeros(end - begin,784);
-            Output = Nd4j.zeros(end - begin,10);
-            for(i = begin; i < end; i++){
-                Output.putRow(i - begin, TotalLabels.getRow(i));
-                Input.putRow(i - begin, TotalInput.getRow(i));
-            }
-
-        }
-        else if(args[i].equals("u")){
-        	int dataset_size = new Integer(args[i+1]);
-        	Random rn = new Random();
-        	int pos,index = 0;
-        	int n = 3000;
-        	List<Integer> DataPool = new ArrayList<>();
-        	for(i = 0; i < n; i++) {
-        		DataPool.add(i);
-        	}
-        	Input = Nd4j.zeros(dataset_size,784);
-        	Output = Nd4j.zeros(dataset_size,10);
-        	for(i = 0; i < dataset_size ; i++ ) {
-        		pos = Math.abs(rn.nextInt()%n);
-        		Input.putRow(index, TotalInput.getRow(DataPool.get(pos)));
-        		Output.putRow(index, TotalLabels.getRow(DataPool.get(pos)));
-        		n--;
-        		index++;
-        		DataPool.remove(pos);
-        	}
-        }
-        else{
-            List<Integer> Partitions = new ArrayList<>();
-            int[] arr = new int[10];
-            int[] putIndex = new int[10];
-            int index;
-            int datasize = 0;
-            for(int j = i +1; j < args.length-1; j++){
-                Partitions.add(new Integer(args[j]));
-            }
-            for(i = 0; i <  10000; i++){
-                arr[Doubles.asList(TotalLabels.getRow(i).toDoubleVector()).indexOf(1.0)]++;
-            }
-            Map<Integer, INDArray> DataMap = new HashMap<>();
-            Map<Integer, INDArray> LabelsMap = new HashMap<>();
-            for(i = 0 ; i < 10; i++){
-                DataMap.put(i,Nd4j.zeros(arr[i],784));
-                LabelsMap.put(i,Nd4j.zeros(arr[i],10));
-                putIndex[i] = 0;
-                System.out.println(arr[i]);
-            }
-            for(i = 0; i < 10000; i++){
-                index = Doubles.asList(TotalLabels.getRow(i).toDoubleVector()).indexOf(1.0);
-                DataMap.get(index).putRow(putIndex[index],TotalInput.getRow(i));
-                LabelsMap.get(index).putRow(putIndex[index],TotalLabels.getRow(i));
-                putIndex[index]++;
-
-            }
-
-            for( i = 0; i < Partitions.size(); i++){
-                datasize += arr[Partitions.get(i)];
-            }
-            System.out.println(datasize);
-
-            Input = Nd4j.zeros(datasize,784);
-            Output = Nd4j.zeros(datasize,10);
-            Input2 = Nd4j.zeros(    10000-datasize,784);
-            Output2 = Nd4j.zeros(10000-datasize,10);
-
-            index = 0;
-            for(i = 0; i < Partitions.size(); i++){
-                for(int j = 0; j < DataMap.get(Partitions.get(i)).rows(); j++){
-                    Input.putRow(index,DataMap.get(Partitions.get(i)).getRow(j));
-                    Output.putRow(index,LabelsMap.get(Partitions.get(i)).getRow(j));
-                    index++;
-                }
-            }
-            index = 0;
-            List<Integer> P2 = new ArrayList<>();
-            for(i = 5; i < 10; i++){
-                P2.add(i);
-            }
-            for(i = 0; i < P2.size(); i++){
-                for(int j = 0; j < DataMap.get(P2.get(i)).rows(); j++){
-                    Input2.putRow(index,DataMap.get(P2.get(i)).getRow(j));
-                    Output2.putRow(index,LabelsMap.get(P2.get(i)).getRow(j));
-                    index++;
-                }
-            }
-        }
-
-        INDArray Dumm = Nd4j.zeros(1,443610);
-        INDArray gradient2 = Nd4j.zeros(1,443610);
-        INDArray gradient = Nd4j.zeros(1,443610);
+        INDArray Dumm = Nd4j.zeros(1,80730);
+        INDArray gradient2 = Nd4j.zeros(1,80730);
+        INDArray gradient = Nd4j.zeros(1,80730);
         Random rand = new Random();
         List<Double> arr = new ArrayList<>();
         List<Double> acc = new ArrayList<>();
-
-
-
-
 
        ipls = new IPLS();
         
@@ -451,14 +314,7 @@ public class Model {
 
             }
         }
-        /*
-        Console console = new Console();
-        console.start();
-		while(PeerData.STATE == 0){
-        	Thread.yield();
-        }
-		*/
-        
+
         DataSet myData = new DataSet(TotalInput,TotalLabels);
         List<DataSet> Dlist = myData.asList();
         DataSetIterator mni = new ListDataSetIterator(Dlist,100);
@@ -468,26 +324,9 @@ public class Model {
         oos.writeObject(mni);
         oos.close();
         fos.close();
-        /*
-        for(i = 0; i < 500; i++){
-        	arr = Doubles.asList(model.params().toDoubleVector());
-            for(int j = 0; j < model.params().length(); j++){
-                Dumm.put(0,j,arr.get(j));
-            }
-            model.setParams(Dumm);
-            model.fit(mni,1);
-            gradient = GetDiff(Dumm,model.params());
-            model.setParams(Dumm.add(gradient));
-            Evaluation eval = model.evaluate(mnistTest);
-            System.out.println(eval.stats());
-            System.out.println(eval.accuracy());
-            acc.add(eval.accuracy());
-            System.out.println("****************Example finished********************");
-        }
-       */
+        System.out.println(model.params().length());
         int x = new Integer(topic);
-        Thread.sleep((50-x)*4000);
-       System.out.println(model.params());
+        System.out.println(model.params());
         for(i = 0; i < 50; i++){
             arr = ipls.GetPartitions();
             for(int j = 0; j < model.params().length(); j++){
@@ -495,38 +334,29 @@ public class Model {
             }
 
             model.setParams(Dumm);
-            System.out.println(model.params());
-            System.out.println(Dumm);
-            
-            if(x%3 == 0) {
-            	System.out.println("Evaluate model....");
+           // System.out.println(model.params());
+            //System.out.println(Dumm);
 
-            	Evaluation eval = model.evaluate(mnistTest);
-            	System.out.println(eval.stats());
-            	System.out.println(eval.accuracy());
-            	acc.add(eval.accuracy());
-            	System.out.println("****************Example finished********************");
-            
+            if(x == 0) {
+                System.out.println("Evaluate model....");
+
+                Evaluation eval = model.evaluate(mnistTest);
+                System.out.println(eval.stats());
+                //System.out.println(eval.accuracy());
+                //acc.add(eval.accuracy());
+                System.out.println("****************Example finished********************");
             }
-            remote_fit();
-            //System.out.println(arr.size());
-            //HERE MUST GO GET PARTITIONS
-            //model.setParams(UPDATED_WEIGHTS);
-            //System.out.println("Starting Iteration");
-
-            System.out.println(model.params());
-            //Thread.sleep(5000);
-            //gradient = model.getGradientsViewArray();
+            //remote_fit();
+            Thread.sleep(3000);
             gradient = GetDiff(model.params(),Dumm);
             gradient = gradient.mul(1);
             //HERE GO UPDATE METHOD
-            System.out.println("ITERATION : " + i);
+            System.out.println("ITERATION : " + PeerData.middleware_iteration);
             ipls.UpdateGradient(Doubles.asList(gradient.getRow(0).toDoubleVector()));
             System.gc();
             System.runFinalization();
-            if(x%3!=0) {
-            	Thread.sleep(8000);
-            }
+
+
         }
         arr = ipls.GetPartitions();
         for(int j = 0; j < model.params().length(); j++){

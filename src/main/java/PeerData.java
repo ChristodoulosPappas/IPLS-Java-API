@@ -2,6 +2,8 @@
 import io.ipfs.api.Peer;
 import io.ipfs.multihash.Multihash;
 import org.javatuples.Pair;
+import org.javatuples.Quartet;
+import org.javatuples.Quintet;
 import org.javatuples.Triplet;
 import org.web3j.abi.datatypes.Int;
 
@@ -22,18 +24,25 @@ public class PeerData {
     public static Semaphore weightsMtx = new Semaphore(1);
 
     public static Map<Integer,List<String>> workers = new HashMap<>();
+    public static Map<Integer,List<String>> Replica_workers = new HashMap<>();
+
     public static Map<Integer, Double> previous_iter_active_workers = new HashMap<>();
 
     public static int _PARTITIONS;
     public static int _MIN_PARTITIONS;
     public static int _MODEL_SIZE;
     public static boolean First_Iter = true;
+    public static boolean isSynchronous;
     public static boolean isBootsraper;
     public static int _Iter_Clock = 0;
     public static String _ID = null;
     public static String MyPublic_Multiaddr = null;
     public static int Index = 0;
     public static int is_alive_counter = 0;
+    public static int middleware_iteration = 0;
+    public static List<String> Members = new ArrayList<>();
+    public static int Min_Members;
+    public static boolean training_phase = false;
 
 
     volatile public static int STATE = 0;
@@ -44,7 +53,7 @@ public class PeerData {
     public static int DataRecv = 0;
 
     //Blocking Queue, for any task given to the updater
-    public static BlockingQueue<Triplet<String,Integer, List<Double>>> queue = new LinkedBlockingQueue<Triplet<String,Integer, List<Double>>>();
+    public static BlockingQueue<Quintet<String,Integer,Integer, Boolean ,List<Double>>> queue = new LinkedBlockingQueue<Quintet<String,Integer,Integer,Boolean, List<Double>>>();
     //Blocking Queue, for Global Gradients Pool
     public static BlockingQueue<String> GGP_queue = new LinkedBlockingQueue<>();
     //Blocking Queue, for Global Gradients Authority updates
@@ -54,14 +63,24 @@ public class PeerData {
     public static Map<Integer,List<Double>> GradientPartitions = new HashMap<>();
     //public static List<Double> Gradients = new ArrayList<Double>();
     public static Map<Integer,List<Double>> Aggregated_Gradients = new HashMap<>();
+    public static Map<Integer,List<Double>> Aggregated_Weights = new HashMap<>();
     public static Map<Integer,List<Double>> Stored_Gradients = new HashMap<>();
     public static Map<Integer,List<Double>> Weights = new HashMap<Integer, List<Double>>();
 
     public static boolean sendingGradients = false;
     //List that shows for the peers that have not yet replied
-    public static List<Pair<String,Integer>> Wait_Ack = new ArrayList<Pair<String,Integer>>();
+    public static List<Triplet<String,Integer,Integer>> Wait_Ack = new ArrayList<Triplet<String,Integer,Integer>>();
+    public static List<Triplet<String,Integer,Integer>> Wait_Ack_from_future = new ArrayList<Triplet<String,Integer,Integer>>();
+
+    //List that shows the clients that have not yet sent gradients
+    public static List<Triplet<String,Integer,Integer>> Client_Wait_Ack = new ArrayList<>();
+    public static List<Triplet<String,Integer,Integer>> Client_Wait_Ack_from_future = new ArrayList<>();
+    public static List<Triplet<String,Integer,Integer>> Replica_Wait_Ack = new ArrayList<>();
+    public static List<Triplet<String,Integer,Integer>> Replica_Wait_Ack_from_future = new ArrayList<>();
+
     //Hash that give us the latest update of each partition
-    public static Map<Integer, Multihash> LastUpdate = new HashMap<Integer, Multihash>();
+    public static Map<Integer, Integer> Participants = new HashMap<>();
+
 
     public static String  Path;
     //List of partitions that a peer is responsible for
@@ -80,6 +99,19 @@ public class PeerData {
     public static Map<String,List<Integer>> Swarm_Peer_Auth = new HashMap<String,List<Integer>>();
     //Hash table that contains that contains the hash value of the file, with key based on partition
     public static Map<Integer,List<Double>> Weight_Address = new HashMap<Integer, List<Double>>();
+    //Hash table that contains the clients of a peer, aka those who
+    // send to him the gradients. This data structure is been used
+    // only in Synchronous SGD
+    public static Map<Integer,List<String>> Clients = new HashMap<>();
+    //This is a hash table that keeps into account the new clients joined in the
+    // system in order to make them officially acceptable after the iteration
+    // is finished
+    public static Map<Integer,List<String>> New_Clients = new HashMap<>();
+    public static Map<Integer,List<String>> New_Replicas = new HashMap<>();
+    public static Map<Integer,List<String>> New_Members = new HashMap<>();
+    public static Map<Integer,List<String>> Replica_holders = new HashMap<>();
+    public static Map<String,Integer> Servers_Iteration = new HashMap<>();
+    public static Map<String,Integer> Clients_Iteration = new HashMap<>();
 
     //For testings
     public static int num;

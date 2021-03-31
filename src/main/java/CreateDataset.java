@@ -97,7 +97,7 @@ public class CreateDataset {
         int[] putIndex = new int[10];
         int index ;
         int datasize = 0;
-        int nodes = new Integer(args[0]);
+        int nodes = 1;
         int[] class_data = new int[10];
         int[] class_index = new int[10];
         for(i = 0; i <  60000; i++){
@@ -124,7 +124,7 @@ public class CreateDataset {
         }
         int node = 2;
 
-        for(i = 0; i < nodes; i++){
+        for(i = 0; i < 1; i++){
             int dataset_size = 0;
             for(int j =0 ; j < 10; j++){
                 dataset_size+= class_data[j];

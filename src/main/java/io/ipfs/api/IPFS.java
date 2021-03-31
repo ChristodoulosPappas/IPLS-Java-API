@@ -124,7 +124,7 @@ public class IPFS {
                 .collect(Collectors.toList());
     }
 
-    public byte[] cat(Multihash hash) throws IOException {
+    public byte[] cat(String hash) throws IOException {
         return retrieve("cat?arg=" + hash);
     }
 
@@ -436,7 +436,7 @@ public class IPFS {
             return retrieveMap("name/publish?arg=/ipfs/" + hash + id.map(name -> "&key=" + name).orElse(""));
         }
 
-        public String resolve(Multihash hash) throws IOException {
+        public String resolve(String hash) throws IOException {
             Map res = (Map) retrieveAndParse("name/resolve?arg=" + hash);
             return (String)res.get("Path");
         }

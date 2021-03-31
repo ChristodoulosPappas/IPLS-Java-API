@@ -3,14 +3,15 @@ package io.ipfs.api;
 import io.ipfs.cid.*;
 import io.ipfs.multihash.*;
 
+import java.awt.*;
 import java.util.*;
 
 public class KeyInfo {
 
     public final String name;
-    public final Multihash id;
+    public final String id;
 
-    public KeyInfo(String name, Multihash id) {
+    public KeyInfo(String name, String id) {
         this.name = name;
         this.id = id;
     }
@@ -39,6 +40,6 @@ public class KeyInfo {
 
     public static KeyInfo fromJson(Object json) {
         Map<String, String> m = (Map) json;
-        return new KeyInfo(m.get("Name"), Cid.decode(m.get("Id")));
+        return new KeyInfo(m.get("Name"), m.get("Id"));
     }
 }

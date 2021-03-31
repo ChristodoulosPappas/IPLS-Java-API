@@ -1,9 +1,10 @@
-import io.ipfs.api.IPFS;
-import io.ipfs.api.KeyInfo;
-import io.ipfs.api.MerkleNode;
-import io.ipfs.api.NamedStreamable;
+import io.ipfs.api.*;
 import io.ipfs.multihash.Multihash;
+import org.javatuples.Pair;
+import org.javatuples.Quartet;
 import org.javatuples.Triplet;
+import org.javatuples.Tuple;
+import org.web3j.abi.datatypes.Int;
 
 import java.io.*;
 import java.nio.ByteBuffer;
@@ -20,14 +21,103 @@ public class MyIPFSClass {
     public MyIPFSClass(String Path) {
         ipfsObj = new IPFS(Path);
     }
+    public MyIPFSClass(){}
+
+
+    public static void initialize_IPLS_directory() throws IOException {
+        String dirname = "IPLS_directory_" + PeerData._ID;
+        boolean rval;
+        System.out.println("Creating directory and essential files");
+        File dir = new File(dirname);
+        File file;
+        dir.mkdir();
+        file = new File(dirname + "/Auxiliaries");
+        file.createNewFile();
+        file = new File(dirname + "/State");
+        rval = file.createNewFile();
+        for(int i = 0; i < PeerData._PARTITIONS; i++){
+            file = new File(dirname + "/" + i + "_Gradients");
+            file.createNewFile();
+            file = new File(dirname + "/" + i + "_Replicas");
+            file.createNewFile();
+            file = new File(dirname + "/" + i + "_Updates");
+            file.createNewFile();
+
+        }
+
+    }
+
 
     public static Multihash add_file(String Filename) throws IOException {
         //IPFS ipfsObj = new IPFS("/ip4/127.0.0.1/tcp/5001");
         NamedStreamable.FileWrapper file = new NamedStreamable.FileWrapper(new File(Filename));
         List<MerkleNode> node = ipfsObj.add(file);
-        System.out.println(node.get(0).name.get() + " Uploaded " + node.get(0).hash.toString());
-        return node.get(0).hash;
+        System.out.println(node);
+        return node.get(node.size()-1).hash;
     }
+
+    public static  void Update_file(String filename, List<Double> Weights) throws Exception {
+        FileOutputStream fos = new FileOutputStream(filename);
+        ObjectOutputStream oos = new ObjectOutputStream(fos);
+        oos.writeObject(Weights);
+        oos.close();
+        fos.close();
+    }
+
+
+    //Case state == 1, then we write a gradients file
+    //Case state == 2, then we write only in the gradients the iteration number
+    //Case state == 3, then we write also in the updates the iteration number
+    public static void update_IPLS_directory(Map<Integer,List<Double>> Gradients, int state) throws Exception{
+        List<Double> auxilary_list = new ArrayList<>();
+        String dir_name = "IPLS_directory_" + PeerData._ID + "/";
+        if(state == 2){
+            auxilary_list.add((double)PeerData.middleware_iteration);
+            auxilary_list.add((double)PeerData.middleware_iteration-1);
+            auxilary_list.add((double)(PeerData.middleware_iteration-1));
+            Update_file(dir_name + "Auxiliaries",auxilary_list);
+            for(int i = 0; i < PeerData._PARTITIONS; i++){
+                if(!PeerData.Auth_List.contains(i)){
+                    Update_file(dir_name + i +"_Gradients",Gradients.get(i));
+                }
+            }
+        }
+        else if(state == 3){
+            auxilary_list.add((double)PeerData.middleware_iteration);
+            auxilary_list.add((double)PeerData.middleware_iteration);
+            auxilary_list.add((double)(PeerData.middleware_iteration-1));
+            Update_file(dir_name + "Auxiliaries",auxilary_list);
+            for(int i = 0; i < PeerData.Auth_List.size(); i++){
+                Update_file(dir_name + PeerData.Auth_List.get(i) +"_Replicas",Gradients.get(PeerData.Auth_List.get(i)));
+
+            }
+        }
+        else if(state == 4){
+            auxilary_list.add((double)PeerData.middleware_iteration);
+            auxilary_list.add((double)PeerData.middleware_iteration);
+            auxilary_list.add((double)(PeerData.middleware_iteration));
+            Update_file(dir_name + "Auxiliaries",auxilary_list);
+            for(int i = 0; i < PeerData._PARTITIONS; i++){
+                if(!PeerData.Auth_List.contains(i)){
+                    Update_file(dir_name + i +"_Updates",Gradients.get(i));
+                }
+            }
+        }
+    }
+
+
+    public static void publish_gradients(Map<Integer,List<Double>> Gradients, int state) throws Exception {
+        Multihash dir_hash;
+        update_IPLS_directory(Gradients,state);
+        dir_hash = add_file("IPLS_directory_" + PeerData._ID + "/");
+        ipfsObj.name.publish(dir_hash);
+    }
+
+
+    public static String check_peer(String Peer) throws IOException {
+        return ipfsObj.name.resolve(Peer);
+    }
+
 
     public Multihash _Upload_File(List<Double> Weights, String filename) throws IOException {
         //Serialize the Partition model into a file
@@ -54,23 +144,29 @@ public class MyIPFSClass {
     public  List<Double> DownloadParameters(String hash) throws IOException, ClassNotFoundException {
         //IPFS ipfsObj = new IPFS("/ip4/127.0.0.1/tcp/5001");
         byte[] data;
-        Multihash rhash = Multihash.fromBase58(hash);
-        data = ipfsObj.cat(rhash);
+        data = ipfsObj.cat(hash);
+        System.out.println(data);
         ByteArrayInputStream bis = new ByteArrayInputStream(data);
         ObjectInput in = new ObjectInputStream(bis);
         return (List<Double>) in.readObject();
     }
 
+    public List<Double> Get_Message(String Peer,String Path) throws Exception{
+        return DownloadParameters(check_peer(Peer) + "/" + Path);
+    }
+
     public  Map<Integer,List<Double>> DownloadMapParameters(String hash) throws IOException, ClassNotFoundException {
         //IPFS ipfsObj = new IPFS("/ip4/127.0.0.1/tcp/5001");
         byte[] data;
-        Multihash rhash = Multihash.fromBase58(hash);
-        data = ipfsObj.cat(rhash);
+        data = ipfsObj.cat(hash);
         ByteArrayInputStream bis = new ByteArrayInputStream(data);
         ObjectInput in = new ObjectInputStream(bis);
         return (Map<Integer,List<Double>>) in.readObject();
     }
 
+    public void get_file(String name) throws IOException, ClassNotFoundException {
+        System.out.println(this.DownloadParameters(name));
+    }
     public static void get_content() throws IOException {
         //IPFS ipfsObj = new IPFS("/ip4/127.0.0.1/tcp/5001");
         Map<Multihash, Object> mp = ipfsObj.pin.ls(IPFS.PinType.all);
@@ -88,12 +184,12 @@ public class MyIPFSClass {
     }
 
 
-    public static void publish_key(String name) throws IOException {
+    public static void publish_key(String name, int partition) throws IOException {
         KeyInfo key;
         //IPFS ipfsObj = new IPFS("/ip4/127.0.0.1/tcp/5001");
         key = create_key(name);
         System.out.println(key);
-        System.out.println(ipfsObj.name.publish(key.id, Optional.of(key.name)));
+        //System.out.println(ipfsObj.name.publish(key.id, Optional.of(key.name)));
 
     }
 
@@ -236,6 +332,33 @@ public class MyIPFSClass {
         return Base64.getUrlEncoder().encodeToString(finalbarr);
     }
 
+    public static String Marshall_Packet(List<Double> Responsibilities,String OriginPeer,int Partition,int iteration,short pid){
+        int i;
+        byte[] finalbarr;
+
+        ByteBuffer buff = ByteBuffer.allocate(Double.BYTES * (Responsibilities.size()) + 3*Integer.BYTES+ Short.BYTES );
+        buff.putShort(0,pid);
+        buff.putInt(Short.BYTES, Responsibilities.size());
+        buff.putInt(Short.BYTES+Integer.BYTES,Partition);
+        buff.putInt(Short.BYTES+2*Integer.BYTES,iteration);
+        for(i = 0; i < Responsibilities.size(); i++){
+            buff.putDouble(i*Double.BYTES  + 3*Integer.BYTES + Short.BYTES ,Responsibilities.get(i));
+        }
+        byte[] barr = new byte[buff.remaining()];
+        byte[] OriginIdBytes = OriginPeer.getBytes();
+
+        buff.get(barr);
+        finalbarr = new byte[barr.length + OriginPeer.length()];
+        for (i = 0; i < barr.length; i++) {
+            finalbarr[i] = barr[i];
+        }
+        for (i = barr.length ; i < finalbarr.length; i++){
+            finalbarr[i] = OriginIdBytes[i - barr.length];
+        }
+
+        return Base64.getUrlEncoder().encodeToString(finalbarr);
+    }
+
     public static String Marshall_Packet(String OriginPeer,short pid){
         int i,size;
         byte[] finalbarr;
@@ -361,6 +484,55 @@ public class MyIPFSClass {
 
     }
 
+    public static String JOIN_PACKET(String Peer,int Partition,int iteration,short reply){
+        ByteBuffer buff = ByteBuffer.allocate(2*Integer.BYTES  +  2*Short.BYTES);
+        byte[] finalbarr;
+        buff.putShort(0,(short) 8);
+        buff.putShort(Short.BYTES,reply);
+        buff.putInt(2*Short.BYTES, Partition);
+        buff.putInt(2*Short.BYTES + Integer.BYTES,iteration);
+        byte[] barr = new byte[buff.remaining()];
+        buff.get(barr);
+        finalbarr = new byte[barr.length + Peer.length()];
+
+        byte[] PeerId = Peer.getBytes();
+
+        for (int i = 0; i < barr.length; i++) {
+            finalbarr[i] = barr[i];
+        }
+        for (int i = barr.length ; i < finalbarr.length; i++){
+            finalbarr[i] = PeerId[i - barr.length];
+        }
+        return Base64.getUrlEncoder().encodeToString(finalbarr);
+
+    }
+
+    public static String JOIN_PARTITION_SERVER(String Peer,int Partition,short reply){
+
+        return JOIN_PACKET(Peer,Partition,PeerData.middleware_iteration,reply);
+
+    }
+
+    public static String _START_TRAINING(){
+        ByteBuffer buff = ByteBuffer.allocate(Short.BYTES);
+        byte[] finalbarr;
+        buff.putShort(0,(short) 9);
+
+        byte[] barr = new byte[buff.remaining()];
+        buff.get(barr);
+        finalbarr = new byte[barr.length + PeerData._ID.length()];
+
+        byte[] PeerId = PeerData._ID.getBytes();
+
+        for (int i = 0; i < barr.length; i++) {
+            finalbarr[i] = barr[i];
+        }
+        for (int i = barr.length ; i < finalbarr.length; i++){
+            finalbarr[i] = PeerId[i - barr.length];
+        }
+        return Base64.getUrlEncoder().encodeToString(finalbarr);
+    }
+
     public static  Map<String,List<Integer>> Unmarshall_Peer_Responsibilities(String returnval) throws UnsupportedEncodingException {
         int i, arr_len;
         byte[] bytes_array = Base64.getUrlDecoder().decode(returnval);
@@ -425,6 +597,51 @@ public class MyIPFSClass {
         PeerId = new String(Id_array);
 
         return new Triplet<>(PeerId,Partition,Gradients);
+    }
+
+    public Quartet<String,Integer,Integer,List<Double>> GET_GRADIENTS(ByteBuffer rbuff, byte[] bytes_array){
+        int arr_len,i,Partition,iteration;
+        String PeerId;
+        arr_len = rbuff.getInt();
+        Partition = rbuff.getInt();
+        iteration = rbuff.getInt();
+        List<Double> Gradients = new ArrayList<Double>();
+
+        for(i = 0; i < arr_len; i++){
+            Gradients.add(rbuff.getDouble());
+        }
+        byte[] Id_array = new byte[bytes_array.length - arr_len*Double.BYTES - 3 *Integer.BYTES - Short.BYTES];
+        for (i = arr_len * Double.BYTES + 3 * Integer.BYTES + Short.BYTES; i < bytes_array.length; i++) {
+            Id_array[i - arr_len * Double.BYTES - 3 * Integer.BYTES - Short.BYTES] = bytes_array[i];
+        }
+        //System.out.println(Gradients);
+
+        PeerId = new String(Id_array);
+
+        return new Quartet<>(PeerId,Partition,iteration,Gradients);
+    }
+    //List<Double> is going to become INDArray one day
+    // Deserializing Update message
+    public Quartet<String,Integer,Integer,List<Double>> Get_Replica_Model(ByteBuffer rbuff, byte[] bytes_array){
+        int arr_len,i,iteration,Peer_num;
+        String PeerId;
+        arr_len = rbuff.getInt();
+        iteration = rbuff.getInt();
+        Peer_num = rbuff.getInt();
+        List<Double> Gradients = new ArrayList<Double>();
+
+        for(i = 0; i < arr_len; i++){
+            Gradients.add(rbuff.getDouble());
+        }
+        byte[] Id_array = new byte[bytes_array.length - arr_len*Double.BYTES - 3 *Integer.BYTES - Short.BYTES];
+        for (i = arr_len * Double.BYTES + 3 * Integer.BYTES + Short.BYTES; i < bytes_array.length; i++) {
+            Id_array[i - arr_len * Double.BYTES - 3 * Integer.BYTES - Short.BYTES] = bytes_array[i];
+        }
+        //System.out.println(Gradients);
+
+        PeerId = new String(Id_array);
+
+        return new Quartet<>(PeerId,iteration,Peer_num,Gradients);
     }
 
     public String Get_Peer(ByteBuffer rbuff,  byte[] bytes_array, int start){
@@ -521,6 +738,15 @@ public class MyIPFSClass {
         System.out.println("HASH : " + Hash + " , " + Hash.length());
         Origin_Peer = new String(Origin_array);
         return new Triplet<>(Partition,Hash,Origin_Peer);
+    }
+    public Triplet<String,Integer,Integer> Get_JoinRequest(ByteBuffer rbuff, byte[] bytes_array){
+        byte[] Id_array = new byte[bytes_array.length  - 2*Short.BYTES - 2*Integer.BYTES];
+        int Partition = rbuff.getInt();
+        int iteration = rbuff.getInt();
+        for (int i = 2*Short.BYTES + 2*Integer.BYTES; i < bytes_array.length; i++) {
+            Id_array[i - 2*Short.BYTES - 2*Integer.BYTES] = bytes_array[i];
+        }
+        return new org.javatuples.Triplet<>(new String(Id_array),Partition,iteration);
     }
     /*
     // Here we wait for a publish from a specific topic to get gradients
