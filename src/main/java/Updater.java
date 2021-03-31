@@ -1,12 +1,17 @@
 import io.ipfs.api.IPFS;
 import io.ipfs.multihash.Multihash;
+import org.javatuples.Pair;
+import org.javatuples.Quartet;
+import org.javatuples.Quintet;
 import org.javatuples.Triplet;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class Updater extends Thread{
     IPFS ipfs;
@@ -25,14 +30,34 @@ public class Updater extends Thread{
         return  ipfsClass.add_file(filename);
     }
 
-    public void _Update(List<Double> Gradient,int Partiton,String Origin){
+    public void _Update(List<Double> Gradient,int Partiton,String Origin,int iteration,boolean from_clients) throws InterruptedException {
         int i,counter = 0;
         double weight = PeerData.previous_iter_active_workers.get(Partiton);
         //Aggregate gradients from pub/sub
-        if(Origin == null) {
+        if(!from_clients) {
             System.out.println("From pubsub");
-            for (i = 0; i < PeerData.Weights.get(Partiton).size(); i++) {
-                PeerData.Weights.get(Partiton).set(i, 0.75*PeerData.Weights.get(Partiton).get(i) + Gradient.get(i));
+            //System.out.println("GAMW TO SPITI");
+
+            if(PeerData.isSynchronous){
+                PeerData.mtx.acquire();
+
+                if((PeerData.Replica_holders.get(Partiton).contains(Origin) && iteration == PeerData.middleware_iteration) || (PeerData.New_Replicas.get(Partiton).contains(Origin) && iteration == PeerData.middleware_iteration)){
+                    for( i = 0; i < PeerData.Aggregated_Gradients.get(Partiton).size(); i++){
+                        PeerData.Aggregated_Gradients.get(Partiton).set(i, PeerData.Aggregated_Gradients.get(Partiton).get(i) + Gradient.get(i));
+                    }
+                    PeerData.Replica_Wait_Ack.remove(new Triplet<>(Origin,Partiton,iteration));
+                }
+                else if((PeerData.Replica_holders.get(Partiton).contains(Origin) && iteration > PeerData.middleware_iteration) || (PeerData.New_Replicas.get(Partiton).contains(Origin) && iteration > PeerData.middleware_iteration)){
+                    // Do something for replica holders only. Aggregate in future buffer
+                    PeerData.Replica_Wait_Ack_from_future.add(new Triplet<>(Origin,Partiton,iteration));
+                }
+
+                PeerData.mtx.release();
+            }
+            else{
+                for (i = 0; i < PeerData.Weights.get(Partiton).size(); i++) {
+                    PeerData.Weights.get(Partiton).set(i, 0.75*PeerData.Weights.get(Partiton).get(i) + Gradient.get(i));
+                }
             }
             return;
         }
@@ -44,12 +69,45 @@ public class Updater extends Thread{
             }
         }
         //Aggregate gradients from other peers requests
-        else if(Origin != null) {
-        	System.out.println(1/weight);
+        else if(from_clients) {
+            PeerData.mtx.acquire();
+          
             for (i = 0; i < PeerData.Weights.get(Partiton).size(); i++) {
-                PeerData.Weights.get(Partiton).set(i, PeerData.Weights.get(Partiton).get(i) - Gradient.get(i)/weight);
                 PeerData.Aggregated_Gradients.get(Partiton).set(i, PeerData.Aggregated_Gradients.get(Partiton).get(i) + Gradient.get(i));
+                if(!PeerData.isSynchronous){
+                    PeerData.Weights.get(Partiton).set(i, PeerData.Weights.get(Partiton).get(i) - Gradient.get(i)/weight);
+                }
             }
+            if(!PeerData.workers.get(Partiton).contains(Origin)) {
+                PeerData.workers.get(Partiton).add(Origin);
+            }
+            if(PeerData.isSynchronous){
+                // In case a node is so fast sto that he sends the new gradients before the other can finish or if there is a new peer then keep the gradients in a buffer
+                // and use them in the next iteration
+                if((!PeerData.Client_Wait_Ack.contains(new Triplet<>(Origin,Partiton,iteration)) && PeerData.Clients.get(Partiton).contains(Origin))||(PeerData.New_Clients.get(Partiton).contains(Origin))){
+                    System.out.println("RECEIVED GRADIENTS FROM FUTURE ? :^)");
+                    //System.out.println(PeerData.Client_Wait_Ack);
+                    //System.out.println(new Triplet<>(Origin,Partiton,iteration));
+                    PeerData.Client_Wait_Ack_from_future.add(new Triplet<>(Origin,Partiton,iteration));
+                }
+                else if(PeerData.Clients.containsKey(Origin) && PeerData.middleware_iteration < iteration){
+                    System.out.println("RECEIVED GRADIENTS FROM FUTURE ? :^)");
+                    PeerData.Client_Wait_Ack_from_future.add(new Triplet<>(Origin,Partiton,iteration));
+                    for(int j = 0; j < PeerData.Client_Wait_Ack.size(); j++){
+                        if(PeerData.Client_Wait_Ack.contains(new Triplet<>(Origin,Partiton,PeerData.middleware_iteration))){
+                            PeerData.Client_Wait_Ack.remove(new Triplet<>(Origin,Partiton,PeerData.middleware_iteration));
+                            break;
+                        }
+                    }
+                }
+                else{
+                    PeerData.Client_Wait_Ack.remove(new Triplet<>(Origin,Partiton,iteration));
+                }
+
+
+            }
+            PeerData.mtx.release();
+
         }
      }
 
@@ -57,32 +115,36 @@ public class Updater extends Thread{
     public void run(){
         ipfs = new IPFS(PeerData.Path);
         ipfsClass = new MyIPFSClass(PeerData.Path);
-        int partition;
+        int partition,iteration;
+        boolean from_clients;
         List<Double> Gradient;
         String PeerId,reply;
-        Triplet<String,Integer, List<Double>> request;
+        Quintet<String,Integer,Integer,Boolean, List<Double>> request;
         Multihash hash;
         try {
             while (true) {
                 request = PeerData.queue.take();
                 partition = request.getValue1();
-                Gradient = request.getValue2();
+                Gradient = request.getValue4();
+                from_clients = request.getValue3();
                 PeerId = request.getValue0();
-
-                _Update(Gradient, partition,PeerId);
+                iteration = request.getValue2();
+                _Update(Gradient, partition,PeerId,iteration,from_clients);
 
                 if(PeerData.isBootsraper){
                     continue;
                 }
-                if(PeerId != null && PeerId.equals(ipfs.id().get("ID").toString()) == false) {
+                if(PeerId != null && PeerId.equals(ipfs.id().get("ID").toString()) == false && !PeerData.isSynchronous) {
                     ipfs.pubsub.pub(PeerId,ipfsClass.Marshall_Packet(PeerData.Weights.get(request.getValue1()),ipfs.id().get("ID").toString(),partition,(short)4));
                 }
-                else if(PeerId != null){
+                else if(PeerId != null && !PeerData.isSynchronous){
                 	for(int i = 0; i < PeerData.Aggregated_Gradients.get(partition).size(); i++) {
                 		PeerData.Aggregated_Gradients.get(partition).set(i, 0.25*PeerData.Weights.get(partition).get(i));
                 	}
-                    ipfs.pubsub.pub(new Integer(partition).toString(),ipfsClass.Marshall_Packet(PeerData.Aggregated_Gradients.get(partition),ipfs.id().get("ID").toString(),partition,(short) 3));
-                    //Clean Aggregated_Gradients vector
+                    if(!PeerData.isSynchronous){
+                        ipfs.pubsub.pub(new Integer(partition).toString(),ipfsClass.Marshall_Packet(PeerData.Aggregated_Gradients.get(partition),ipfs.id().get("ID").toString(),partition,(short) 3));
+                    }
+                	//Clean Aggregated_Gradients vector
                     for(int i = 0; i < PeerData.Aggregated_Gradients.get(partition).size(); i++){
                         PeerData.Aggregated_Gradients.get(partition).set(i,0.0);
                     }
