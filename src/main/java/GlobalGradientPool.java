@@ -64,7 +64,7 @@ class GGP_Receiver extends Thread{
             }
             if(!tuple.getValue0().equals(PeerData._ID)){
                 Quintet<String,Integer,Integer,Boolean,List<Double>> newtuple = new Quintet<>(tuple.getValue0(),partition,tuple.getValue1(),false,tuple.getValue3());
-                update_participants(tuple.getValue1(),tuple.getValue2());
+                update_participants(partition,tuple.getValue2());
                 PeerData.queue.add(newtuple);
             }
             else{
@@ -75,7 +75,6 @@ class GGP_Receiver extends Thread{
             PeerData.mtx.acquire();
             short is_reply = rbuff.getShort();
             org.javatuples.Triplet<String,Integer,Integer> ReplyPair = ipfsClass.Get_JoinRequest(rbuff,bytes_array);
-            System.out.println(partition + ", " + PeerData.Auth_List);
             if(is_reply == 0 && PeerData.Auth_List.contains(partition) && !PeerData._ID.equals(ReplyPair.getValue0()) && !PeerData.New_Replicas.get(ReplyPair.getValue1()).contains(ReplyPair.getValue0()) && !PeerData.Replica_holders.get(ReplyPair.getValue1()).contains(ReplyPair.getValue0())){
                 PeerData.New_Replicas.get(ReplyPair.getValue1()).add(ReplyPair.getValue0());
                 ipfs.pubsub.pub(ReplyPair.getValue0(),ipfsClass.JOIN_PARTITION_SERVER(PeerData._ID,partition,(short)3));

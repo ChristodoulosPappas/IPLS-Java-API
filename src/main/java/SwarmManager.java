@@ -7,7 +7,9 @@ import org.javatuples.Triplet;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class SwarmManager extends Thread{
     public static IPFS ipfs;
@@ -215,6 +217,7 @@ public class SwarmManager extends Thread{
     // they never arrived because i was probably sleeping.
     public static boolean Check_iteration(String Peer,int pos) throws  Exception{
         double peer_iteration = AuxilaryIpfs.Get_Message(Peer,"Auxiliaries").get(pos);
+        System.out.println( AuxilaryIpfs.Get_Message(Peer,"Auxiliaries"));
         if((int)peer_iteration == PeerData.middleware_iteration){
             return true;
         }
@@ -242,9 +245,19 @@ public class SwarmManager extends Thread{
 
     }
 
+    public static void update_participants(int partition,int num_of_participants){
+        if(!PeerData.Participants.containsKey(partition)){
+            PeerData.Participants.put(partition,num_of_participants);
+        }
+        else{
+            PeerData.Participants.replace(partition,PeerData.Participants.get(partition) + num_of_participants);
+        }
+    }
+
     public static void Check_Replicas() throws Exception{
         String Peer;
         int partition;
+        Map<Integer,Integer> Participants = new HashMap<>();
         PeerData.mtx.acquire();
         for(int i = 0; i < PeerData.Replica_Wait_Ack.size(); i++){
             Peer = PeerData.Replica_Wait_Ack.get(i).getValue0();
@@ -253,7 +266,8 @@ public class SwarmManager extends Thread{
             if(Check_iteration(Peer,1)){
                 Quintet<String,Integer,Integer,Boolean,List<Double>> tuple = new Quintet<>(Peer,partition,PeerData.middleware_iteration,false,AuxilaryIpfs.Get_Message(Peer,partition+"_Replicas"));
                 PeerData.queue.add(tuple);
-
+                Participants = AuxilaryIpfs.Get_Participant_Number(Peer,"Participants");
+                update_participants(partition,Participants.get(partition));
             }
         }
         PeerData.mtx.release();
@@ -268,7 +282,7 @@ public class SwarmManager extends Thread{
             Peer = PeerData.Wait_Ack.get(i).getValue0();
             partition = PeerData.Wait_Ack.get(i).getValue1();
 
-            if(Check_iteration(Peer,2)){
+            if(Check_iteration(Peer,2) || PeerData.Wait_Ack.get(i).getValue2() == -1){
                 List<Double> Updated_Partition = AuxilaryIpfs.Get_Message(Peer,partition+"_Updates");
                 for(int j = 0; j < PeerData.Weight_Address.get(partition).size(); j++){
                     PeerData.Weight_Address.get(partition).set(j,Updated_Partition.get(j));
@@ -308,9 +322,15 @@ public class SwarmManager extends Thread{
 
     public void run(){
         String Peer;
+        int iteration;
         while(true){
             try {
-                Thread.sleep(1000);
+                iteration = PeerData.middleware_iteration;
+                Thread.sleep(20000);
+                if (iteration == PeerData.middleware_iteration && PeerData.IPNS_Enable) {
+                    System.out.println("Checking Indirect requests");
+                    CHECK_INDIRECT_REQUESTS();
+                }
 
 
             }

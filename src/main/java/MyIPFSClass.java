@@ -26,15 +26,21 @@ public class MyIPFSClass {
 
     public static void initialize_IPLS_directory() throws IOException {
         String dirname = "IPLS_directory_" + PeerData._ID;
+
         boolean rval;
         System.out.println("Creating directory and essential files");
+        System.out.println(PeerData._ID);
+        System.out.println(PeerData._ID.length());
         File dir = new File(dirname);
         File file;
-        dir.mkdir();
+        System.out.println(dir.mkdir());
+
         file = new File(dirname + "/Auxiliaries");
         file.createNewFile();
         file = new File(dirname + "/State");
-        rval = file.createNewFile();
+        file.createNewFile();
+        file = new File(dirname + "/Participants");
+        file.createNewFile();
         for(int i = 0; i < PeerData._PARTITIONS; i++){
             file = new File(dirname + "/" + i + "_Gradients");
             file.createNewFile();
@@ -50,9 +56,12 @@ public class MyIPFSClass {
 
     public static Multihash add_file(String Filename) throws IOException {
         //IPFS ipfsObj = new IPFS("/ip4/127.0.0.1/tcp/5001");
+        //System.out.println(Filename);
+
         NamedStreamable.FileWrapper file = new NamedStreamable.FileWrapper(new File(Filename));
+        //System.out.println(file);
+
         List<MerkleNode> node = ipfsObj.add(file);
-        System.out.println(node);
         return node.get(node.size()-1).hash;
     }
 
@@ -63,6 +72,13 @@ public class MyIPFSClass {
         oos.close();
         fos.close();
     }
+    public static void Update_file(String filename, Map<Integer,Integer> Participants) throws Exception {
+        FileOutputStream fos = new FileOutputStream(filename);
+        ObjectOutputStream oos = new ObjectOutputStream(fos);
+        oos.writeObject(Participants);
+        oos.close();
+        fos.close();
+    }
 
 
     //Case state == 1, then we write a gradients file
@@ -70,6 +86,7 @@ public class MyIPFSClass {
     //Case state == 3, then we write also in the updates the iteration number
     public static void update_IPLS_directory(Map<Integer,List<Double>> Gradients, int state) throws Exception{
         List<Double> auxilary_list = new ArrayList<>();
+        Map<Integer,Integer> Participants = new HashMap<>();
         String dir_name = "IPLS_directory_" + PeerData._ID + "/";
         if(state == 2){
             auxilary_list.add((double)PeerData.middleware_iteration);
@@ -88,9 +105,10 @@ public class MyIPFSClass {
             auxilary_list.add((double)(PeerData.middleware_iteration-1));
             Update_file(dir_name + "Auxiliaries",auxilary_list);
             for(int i = 0; i < PeerData.Auth_List.size(); i++){
+                Participants.put(PeerData.Auth_List.get(i),PeerData.workers.get(PeerData.Auth_List.get(i)).size());
                 Update_file(dir_name + PeerData.Auth_List.get(i) +"_Replicas",Gradients.get(PeerData.Auth_List.get(i)));
-
             }
+            Update_file(dir_name+"Participants",Participants);
         }
         else if(state == 4){
             auxilary_list.add((double)PeerData.middleware_iteration);
@@ -98,7 +116,7 @@ public class MyIPFSClass {
             auxilary_list.add((double)(PeerData.middleware_iteration));
             Update_file(dir_name + "Auxiliaries",auxilary_list);
             for(int i = 0; i < PeerData._PARTITIONS; i++){
-                if(!PeerData.Auth_List.contains(i)){
+                if(PeerData.Auth_List.contains(i)){
                     Update_file(dir_name + i +"_Updates",Gradients.get(i));
                 }
             }
@@ -144,17 +162,43 @@ public class MyIPFSClass {
     public  List<Double> DownloadParameters(String hash) throws IOException, ClassNotFoundException {
         //IPFS ipfsObj = new IPFS("/ip4/127.0.0.1/tcp/5001");
         byte[] data;
+        List<Double> Numerical_data = new ArrayList<>();
+        //System.out.println(hash);
         data = ipfsObj.cat(hash);
-        System.out.println(data);
+
+        //System.out.println(data);
         ByteArrayInputStream bis = new ByteArrayInputStream(data);
+        //System.out.println(bis);
         ObjectInput in = new ObjectInputStream(bis);
-        return (List<Double>) in.readObject();
+        Numerical_data = (List<Double>) in.readObject();
+        in.close();
+        bis.close();
+        return Numerical_data;
+    }
+
+    public Map<Integer,Integer> DownloadMap(String hash) throws Exception{
+        //IPFS ipfsObj = new IPFS("/ip4/127.0.0.1/tcp/5001");
+        byte[] data;
+        Map<Integer,Integer> Data = new HashMap<>();
+        data = ipfsObj.cat(hash);
+
+        //System.out.println(data);
+        ByteArrayInputStream bis = new ByteArrayInputStream(data);
+        //System.out.println(bis);
+        ObjectInput in = new ObjectInputStream(bis);
+        Data = (Map<Integer, Integer>) in.readObject();
+        in.close();
+        bis.close();
+        return Data;
+
     }
 
     public List<Double> Get_Message(String Peer,String Path) throws Exception{
         return DownloadParameters(check_peer(Peer) + "/" + Path);
     }
-
+    public Map<Integer,Integer> Get_Participant_Number(String Peer,String Path) throws Exception{
+        return DownloadMap(check_peer(Peer) + "/" + Path);
+    }
     public  Map<Integer,List<Double>> DownloadMapParameters(String hash) throws IOException, ClassNotFoundException {
         //IPFS ipfsObj = new IPFS("/ip4/127.0.0.1/tcp/5001");
         byte[] data;

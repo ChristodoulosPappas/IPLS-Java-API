@@ -21,6 +21,9 @@ import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
+
+// This code is just for experimental purposes. Instead of having all the processes in your computer train
+// the model create this process to train serially every processes model
 public class computationalServer {
     public  static MultiLayerNetwork model;
 
@@ -34,7 +37,7 @@ public class computationalServer {
         System.out.println(model.params());
         bis.close();
         in.close();
-        bis = new FileInputStream(topic + "TrainDataset");
+        bis = new FileInputStream("MNIST_Partitioned_Dataset/"+topic + "TrainDataset");
         in = new ObjectInputStream(bis);
         mni = (DataSetIterator)in.readObject();
         in.close();
@@ -67,6 +70,9 @@ public class computationalServer {
         double rate = 0.0015; // learning rate
         int i;
         //log.info("Build model....");
+
+        //PUT YOUR MODEL HERE
+
         MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
                 .seed(rngSeed) //include a random seed for reproducibility
                 .updater(new Sgd(0.1))
@@ -76,11 +82,7 @@ public class computationalServer {
                 .list()
                 .layer(new DenseLayer.Builder() //create the first input layer.
                         .nIn(numRows * numColumns)
-                        .nOut(500)
-                        .build())
-                .layer(new DenseLayer.Builder() //create the second input layer
-                        .nIn(500)
-                        .nOut(100)
+                        .nOut(20)
                         .build())
                 .layer(new OutputLayer.Builder(LossFunctions.LossFunction.NEGATIVELOGLIKELIHOOD) //create hidden layer
                         .activation(Activation.SOFTMAX)
@@ -88,9 +90,11 @@ public class computationalServer {
                         .build())
                 .build();
 
+
         model = new MultiLayerNetwork(conf);
         model.init();
         model.setListeners(new ScoreIterationListener(1));  //print the score with every iteration
+        /* ******************************************************** */
         Map<String,Integer> Pmap = new HashMap<>();
         
         Sub SUB = new Sub("server",path,queue,true);

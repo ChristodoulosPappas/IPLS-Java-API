@@ -28,21 +28,28 @@ public class PeerData {
 
     public static Map<Integer, Double> previous_iter_active_workers = new HashMap<>();
 
+    // The number of partitions that we partition the model
     public static int _PARTITIONS;
+    //The minimum number of responsibilities a peer must have
     public static int _MIN_PARTITIONS;
-    public static int _MODEL_SIZE;
+    // The number of parameters of the model
+    public static long _MODEL_SIZE;
+    // Boolean value inficating if the system is on the initialization phase. Becomes false when it proceed on training phase
     public static boolean First_Iter = true;
-    public static boolean isSynchronous;
+    // Boolean value indicating if the system is using SGD or Asynchronous GD
+    public static boolean isSynchronous = true;
     public static boolean isBootsraper;
     public static int _Iter_Clock = 0;
     public static String _ID = null;
     public static String MyPublic_Multiaddr = null;
     public static int Index = 0;
     public static int is_alive_counter = 0;
+    // The global logical clock of the system indicating the global iteration. This is used only in SGD
     public static int middleware_iteration = 0;
     public static List<String> Members = new ArrayList<>();
     public static int Min_Members;
     public static boolean training_phase = false;
+    public static boolean IPNS_Enable = false;
 
 
     volatile public static int STATE = 0;
@@ -62,7 +69,13 @@ public class PeerData {
 
     public static Map<Integer,List<Double>> GradientPartitions = new HashMap<>();
     //public static List<Double> Gradients = new ArrayList<Double>();
+    //The gradients received from replica peers
+    public static Map<Integer,List<Double>> Replicas_Gradients = new HashMap<>();
+    // The gradients received from my clients (peers that are not responsible for my partitions so i am a dealer of them)
     public static Map<Integer,List<Double>> Aggregated_Gradients = new HashMap<>();
+    // There is a very very small and almost impossible for realsitic systems chance that a client has finished the next iteration while i am in the previous (just before end the updateGradientMethod)
+    // This Structure aggregate those gradients from fututre
+    public static Map<Integer,List<Double>> Aggregated_Gradients_from_future = new HashMap<>();
     public static Map<Integer,List<Double>> Aggregated_Weights = new HashMap<>();
     public static Map<Integer,List<Double>> Stored_Gradients = new HashMap<>();
     public static Map<Integer,List<Double>> Weights = new HashMap<Integer, List<Double>>();
@@ -72,9 +85,11 @@ public class PeerData {
     public static List<Triplet<String,Integer,Integer>> Wait_Ack = new ArrayList<Triplet<String,Integer,Integer>>();
     public static List<Triplet<String,Integer,Integer>> Wait_Ack_from_future = new ArrayList<Triplet<String,Integer,Integer>>();
 
-    //List that shows the clients that have not yet sent gradients
+    //List that shows the clients that have not yet sent gradients. I must wait until Client_Wait_Ack size is 0
     public static List<Triplet<String,Integer,Integer>> Client_Wait_Ack = new ArrayList<>();
+    // The same somehow with the Aggregated_Gradients_from_future
     public static List<Triplet<String,Integer,Integer>> Client_Wait_Ack_from_future = new ArrayList<>();
+    // The same as Client_Wait_Ack but for the replicas synchronization
     public static List<Triplet<String,Integer,Integer>> Replica_Wait_Ack = new ArrayList<>();
     public static List<Triplet<String,Integer,Integer>> Replica_Wait_Ack_from_future = new ArrayList<>();
 

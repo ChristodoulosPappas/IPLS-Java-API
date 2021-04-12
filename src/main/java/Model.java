@@ -92,7 +92,28 @@ class Console extends Thread{
 }
 
 
+// This is an example of use of IPLS. In this example you can start at most 5 peers just because i created only 5 different datasets.
+// The datasets and other related files are on the file MNIST_Partitioned_Dataset
+// If you want to run this program, then you should follow these steps:
+// 1) Create a private IPFS network
+// 2) Start a Model process for the bootstraper process with : -a /ip4/127.0.0.1/tcp/xxx -topic 1 -bID XXXX(the peers ID) -p 16 -mp 2 -b true -n 4
+// 3) Start the Computational_Server in order not to train ever model in parallel (otherwise it might destroy your PC ) with : /ip4/127.0.0.1/tcp/YYYY
+// The start each peer and for each of the 4 peers use the bellow :
+// 4) -a /ip4/127.0.0.1/tcp/ZZZZ -topic 2 -bID XXXX (Bootstrapers hash id) -p 16 -mp 4 -b false -n 4 -IPNS false
+// 5) -a /ip4/127.0.0.1/tcp/AAAA -topic 3 -bID XXXX (Bootstrapers hash id) -p 16 -mp 4 -b false -n 4 -IPNS false
+// 6) -a /ip4/127.0.0.1/tcp/VVVV -topic 4 -bID XXXX (Bootstrapers hash id) -p 16 -mp 4 -b false -n 4 -IPNS false
+// 7) -a /ip4/127.0.0.1/tcp/BBBV -topic 5 -bID XXXX (Bootstrapers hash id) -p 16 -mp 4 -b false -n 4 -IPNS false
 
+/*
+    In order to start an IPLS project, you must define also some important hyper parameters which are:
+        * The IPFS Path for the communication of the IPLS with the IPFS daemon.
+        * The number of partitions you want to partition the model. All the peers must be informed with the same partition number.
+        * The minimum number of responsibilities you want the peers to have. For example you can decide to partition the model in 16 segments and each peer must be responsible for at least 2 of the 16 segments.
+        * A boolean value to inform the peer if he is bootstraper of the private network or not.
+        * The IPFS hash id of the bootstraper peer.
+        * The minimum amount of peers that must be gathered before they proceed to the training phase.
+        * A boolean value indicating if you the system runs Synchronous Gradient Descent or Asynchronous Gradient Descent
+*/
 public class Model {
 	public static IPLS ipls;
     public static String topic;
@@ -163,6 +184,7 @@ public class Model {
         min_peers.setRequired(true);
         options.addOption(min_peers);
 
+        // This variable is not of importance but it helps for the file names of the dataset.
         Option my_id_number = new Option("topic", "id_number",true,"The id number of the peer");
         my_id_number.setRequired(false);
         options.addOption(my_id_number);
@@ -171,6 +193,13 @@ public class Model {
         my_id_number.setRequired(true);
         options.addOption(Bootstraper);
 
+        Option IPNS = new Option("IPNS", "IPNS",true,"Provide Indirect communication, instead of using message passing protocols use IPFS file system capabilities");
+        my_id_number.setRequired(false);
+        options.addOption(IPNS);
+
+        Option asynchronous = new Option("async", "Async",true,"If is true then you turn the protocol in asynchronous mod where you do not have to wait for others to complete the iteration");
+        my_id_number.setRequired(false);
+        options.addOption(asynchronous);
 
         DefaultParser parser = new DefaultParser();
         HelpFormatter formatter = new HelpFormatter();
@@ -188,7 +217,16 @@ public class Model {
             topic =  cmd.getOptionValue("id_number");
             Bootstrapers.add(cmd.getOptionValue("Bootstraper_ID"));
 
-
+            if(cmd.getOptionValue("IPNS") != null){
+                if(cmd.getOptionValue("IPNS").equals("true")){
+                    PeerData.IPNS_Enable = true;
+                }
+            }
+            if(cmd.getOptionValue("async") != null){
+                if(cmd.getOptionValue("async").equals("true")){
+                    PeerData.isSynchronous = false;
+                }
+            }
 
         } catch (Exception e) {
             System.out.println(e.getMessage());
@@ -212,13 +250,13 @@ public class Model {
         try {
 
 
-            FileInputStream fis = new FileInputStream(topic + "TrainDataset");
+            FileInputStream fis = new FileInputStream("MNIST_Partitioned_Dataset/" + topic + "TrainDataset");
             ObjectInput fin = new ObjectInputStream(fis);
             mnistTrain = (DataSetIterator) fin.readObject();
             System.out.println(mnistTrain);
             System.out.println("OKKKK");
             
-            fis = new FileInputStream("MnistTest");
+            fis = new FileInputStream("MNIST_Partitioned_Dataset/"+"MnistTest");
             fin = new ObjectInputStream(fis);
             mnistTest = (DataSetIterator) fin.readObject();
            
@@ -231,10 +269,12 @@ public class Model {
             System.out.println("Could not find iterator ");
             System.exit(-1);
         }
+        /* =================================================================================== */
 
-        //MNiST : 1000
-        //lfw : 1480
-        //log.info("Build model....");
+        ///                             CONFIGURE YOUR MODEL
+
+        /* =================================================================================== */
+
         /*
         MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
                 .seed(rngSeed) //include a random seed for reproducibility
@@ -256,6 +296,7 @@ public class Model {
                         .nOut(outputNum)
                         .build())
                 .build();
+
 		*/
         MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
                 .seed(rngSeed) //include a random seed for reproducibility
@@ -266,10 +307,6 @@ public class Model {
                 .list()
                 .layer(new DenseLayer.Builder() //create the first input layer.
                         .nIn(numRows * numColumns)
-                        .nOut(100)
-                        .build())
-                .layer(new DenseLayer.Builder() //create the second input layer
-                        .nIn(100)
                         .nOut(20)
                         .build())
                 .layer(new OutputLayer.Builder(LossFunctions.LossFunction.NEGATIVELOGLIKELIHOOD) //create hidden layer
@@ -277,38 +314,40 @@ public class Model {
                         .nOut(outputNum)
                         .build())
                 .build();
+
+
         model = new MultiLayerNetwork(conf);
         model.init();
         model.setListeners(new ScoreIterationListener(1));  //print the score with every iteration
 
+
+        /* =================================================================================== */
 
         Sub SUB = new Sub(topic+"reply",Path,queue,true);
         SUB.start();
 
 
 
-        INDArray TotalInput = Nd4j.zeros(7495,784);
-        INDArray TotalLabels = Nd4j.zeros(7495,10);
-        INDArray batchIn = Nd4j.zeros(100,784);
-        INDArray batchOut = Nd4j.zeros(100,10);
+        Console console = new Console();
+        console.start();
 
-        INDArray Input;
-        INDArray Output;
-        INDArray Input2 = null;
-        INDArray Output2 = null;
-        int counter = 0;
-        DataSet Data;
 
-        INDArray Dumm = Nd4j.zeros(1,80730);
-        INDArray gradient2 = Nd4j.zeros(1,80730);
+        INDArray TotalInput = Nd4j.zeros(model.params().length(),784);
+        INDArray TotalLabels = Nd4j.zeros(model.params().length(),10);
+
+
+        INDArray Dumm = Nd4j.zeros(1,model.params().length());
         INDArray gradient = Nd4j.zeros(1,80730);
-        Random rand = new Random();
         List<Double> arr = new ArrayList<>();
         List<Double> acc = new ArrayList<>();
 
-       ipls = new IPLS();
-        
-        ipls.init(Path,Bootstrapers,isBootstraper);
+        // CREATE IPLS OBJECT
+        ipls = new IPLS();
+
+        // START INITIALIZATION PHASE
+        ipls.init(Path,"MNIST_Partitioned_Dataset/ETHModel",Bootstrapers,isBootstraper,model.params().length());
+
+        //IF I AM BOOTSTRAPER THEN DO NOT CONTINUE
         if(isBootstraper){
             while (true){
 
@@ -319,7 +358,7 @@ public class Model {
         List<DataSet> Dlist = myData.asList();
         DataSetIterator mni = new ListDataSetIterator(Dlist,100);
 
-        FileOutputStream fos = new FileOutputStream(topic+"data");
+        FileOutputStream fos = new FileOutputStream("MNIST_Partitioned_Dataset/"+topic+"data");
         ObjectOutputStream oos = new ObjectOutputStream(fos);
         oos.writeObject(mni);
         oos.close();
@@ -327,32 +366,40 @@ public class Model {
         System.out.println(model.params().length());
         int x = new Integer(topic);
         System.out.println(model.params());
+        // TRAIN THE MODEL
         for(i = 0; i < 50; i++){
+            /* ===================================== */
+            // GET THE PARTITIONS FROM THE IPLS SYSTEM
+
             arr = ipls.GetPartitions();
+
+            /* ===================================== */
+
             for(int j = 0; j < model.params().length(); j++){
                Dumm.put(0,j,arr.get(j));
             }
 
             model.setParams(Dumm);
-           // System.out.println(model.params());
-            //System.out.println(Dumm);
+            System.out.println("Evaluate model....");
 
-            if(x == 0) {
-                System.out.println("Evaluate model....");
+            Evaluation eval = model.evaluate(mnistTest);
+            System.out.println(eval.stats());
+            System.out.println("****************Example finished********************");
+            remote_fit();
 
-                Evaluation eval = model.evaluate(mnistTest);
-                System.out.println(eval.stats());
-                //System.out.println(eval.accuracy());
-                //acc.add(eval.accuracy());
-                System.out.println("****************Example finished********************");
-            }
-            //remote_fit();
-            Thread.sleep(3000);
             gradient = GetDiff(model.params(),Dumm);
             gradient = gradient.mul(1);
             //HERE GO UPDATE METHOD
-            System.out.println("ITERATION : " + PeerData.middleware_iteration);
+            if(PeerData.isSynchronous){
+                System.out.println("ITERATION : " + PeerData.middleware_iteration);
+            }
+            else{
+                System.out.println("ITERATION : "+ i);
+            }
+            // UPDATE THE MODEL USING IPLS
             ipls.UpdateGradient(Doubles.asList(gradient.getRow(0).toDoubleVector()));
+
+
             System.gc();
             System.runFinalization();
 

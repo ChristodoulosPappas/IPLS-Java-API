@@ -17,6 +17,7 @@ import java.util.stream.Stream;
 
 import org.json.JSONObject;
 import org.nd4j.linalg.api.ops.custom.Lu;
+import sun.nio.ch.sctp.PeerAddrChange;
 
 class ThreadReceiver extends Thread{
     int _PARTITIONS,_MIN_PARTITIONS;
@@ -442,6 +443,8 @@ class ThreadReceiver extends Thread{
                 //if(PeerData.middleware_iteration > 0 && ReplyPair.getValue2() == 0){
                 //    ipfs.pubsub.pub(ReplyPair.getValue0(),AuxilaryIpfs.Marshall_Packet(PeerData.Weights.get(ReplyPair.getValue1()),ipfs.id().get("ID").toString(),ReplyPair.getValue1(),PeerData.middleware_iteration,(short)3));
                 //}
+                System.out.println(PeerData.Wait_Ack);
+                System.out.println(pair);
                 if (PeerData.Wait_Ack.contains(pair)) {
                     PeerData.Wait_Ack.remove(pair);
                 }
@@ -892,9 +895,14 @@ public class IPLS {
                 for(j = 0; j < PeerData.Weights.get(i).size(); j++){
                     Parameters.add(PeerData.Weights.get(i).get(j));
                 }
+
+            }
+            if(!PeerData.isSynchronous){
+                PeerData.First_Iter = false;
+                return  Parameters;
             }
             PeerData.mtx.acquire();
-            for(i = 0; i < PeerData._PARTITIONS; i++) {
+            for(i = 0; i < PeerData._PARTITIONS ; i++) {
                 if(!PeerData.Auth_List.contains(new Integer(i))){
                     if (PeerData.Partition_Availability.get(i).size() == 0) {
                         // Crash handlinh
@@ -926,13 +934,13 @@ public class IPLS {
                     int max_iteration = 0;
                     boolean zero = false;
                     for(i = 0; i < _PARTITIONS; i++){
-                        if(!PeerData.Auth_List.contains(i) && PeerData.Servers_Iteration.get(PeerData.Dealers.get(i)) == 0){
+                        if(!PeerData.Auth_List.contains(i) && PeerData.Servers_Iteration.containsKey(PeerData.Dealers.get(i)) && PeerData.Servers_Iteration.get(PeerData.Dealers.get(i)) == 0){
                             zero = true;
                         }
-                        if(!PeerData.Auth_List.contains(i) && PeerData.Servers_Iteration.get(PeerData.Dealers.get(i)) < min_iteration && PeerData.Servers_Iteration.get(PeerData.Dealers.get(i)) != 0){
+                        if(!PeerData.Auth_List.contains(i)&& PeerData.Servers_Iteration.containsKey(PeerData.Dealers.get(i)) && PeerData.Servers_Iteration.get(PeerData.Dealers.get(i)) < min_iteration && PeerData.Servers_Iteration.get(PeerData.Dealers.get(i)) != 0){
                             min_iteration = PeerData.Servers_Iteration.get(PeerData.Dealers.get(i));
                         }
-                        if(!PeerData.Auth_List.contains(i) && PeerData.Servers_Iteration.get(PeerData.Dealers.get(i)) > max_iteration ){
+                        if(!PeerData.Auth_List.contains(i)&& PeerData.Servers_Iteration.containsKey(PeerData.Dealers.get(i)) && PeerData.Servers_Iteration.get(PeerData.Dealers.get(i)) > max_iteration ){
                             max_iteration = PeerData.Servers_Iteration.get(PeerData.Dealers.get(i));
                         }
                     }
@@ -959,10 +967,11 @@ public class IPLS {
         for(i = 0; i < PeerData._PARTITIONS; i++){
             if(!PeerData.Auth_List.contains(i) && PeerData.Weight_Address.containsKey(i)){
                 //System.out.println("DOWNLOADING : " +  PeerData.Weight_Address.get(i));
-                System.out.println("Getting From remote peers" + PeerData.Weight_Address.get(i).size());
                 PeerData.Weights.put(i,PeerData.Weight_Address.get(i));
             }
         }
+        System.out.println("GOT UPDATES FROM PARTITIONS!");
+
         // Create a parameter vector
         for(i = 0; i < PeerData._PARTITIONS; i++){
             for(j = 0; j < PeerData.Weights.get(i).size(); j++){
@@ -1072,19 +1081,20 @@ public class IPLS {
 
     public void AggregatePartition(int Partition) throws InterruptedException {
         if(!PeerData.Participants.containsKey(Partition)){
-            PeerData.Participants.put(Partition,PeerData.Clients.get(Partition).size()+1);
+            PeerData.Participants.put(Partition,PeerData.workers.get(Partition).size()+1);
         }
         else{
             PeerData.Participants.replace(Partition,PeerData.workers.get(Partition).size() +  PeerData.Participants.get(Partition));
         }
-
+        //System.out.println("PARTICIPANTS ON THIS ROUND : " + PeerData.Participants.get(Partition) + " Workers : " + PeerData.workers.get(Partition).size());
         for(int i = 0; i < PeerData.Weights.get(Partition).size(); i++) {
-            PeerData.Weights.get(Partition).set(i, PeerData.Weights.get(Partition).get(i) - PeerData.Aggregated_Gradients.get(Partition).get(i)/(PeerData.Participants.get(Partition)));
+            PeerData.Weights.get(Partition).set(i, PeerData.Weights.get(Partition).get(i) - (PeerData.Aggregated_Gradients.get(Partition).get(i) + PeerData.Replicas_Gradients.get(Partition).get(i))/(PeerData.Participants.get(Partition)));
             PeerData.Aggregated_Gradients.get(Partition).set(i,0.0);
+            PeerData.Replicas_Gradients.get(Partition).set(i,0.0);
         }
         PeerData.workers.put(Partition,new ArrayList<>());
 
-        PeerData.Participants.replace(Partition,1 + PeerData.Clients.get(Partition).size());
+        PeerData.Participants.replace(Partition,1);
     }
 
     public void Select_New_Dealer(int Partition) throws Exception {
@@ -1107,12 +1117,19 @@ public class IPLS {
 
     public void Send_Gradient_Partition(int Partition, Map<Integer,List<Double>> GradientPartitions) throws Exception {
         String Peer = PeerData.Dealers.get(Partition);
-        if(PeerData.middleware_iteration >= PeerData.Servers_Iteration.get(Peer)-1) {
+        if(PeerData.isSynchronous && PeerData.middleware_iteration >= PeerData.Servers_Iteration.get(Peer)-1 ) {
             PeerData.Wait_Ack.add( new Triplet<>(Peer,Partition,PeerData.middleware_iteration));
             // Send the updates
-            ipfs.pubsub.pub(Peer,ipfsClass.Marshall_Packet(GradientPartitions.get(Partition),ipfs.id().get("ID").toString(),Partition,PeerData.middleware_iteration,(short) 3));
+            if(!PeerData.IPNS_Enable){
+                ipfs.pubsub.pub(Peer,ipfsClass.Marshall_Packet(GradientPartitions.get(Partition),ipfs.id().get("ID").toString(),Partition,PeerData.middleware_iteration,(short) 3));
+
+            }
             //SEND GRADIENTS
             //System.out.println("SEND GRADIENTS : " + Partition + " , " + Peer);
+        }
+        else{
+            PeerData.Wait_Ack.add( new Triplet<>(Peer,Partition,PeerData.middleware_iteration));
+            ipfs.pubsub.pub(Peer,ipfsClass.Marshall_Packet(GradientPartitions.get(Partition),ipfs.id().get("ID").toString(),Partition,PeerData.middleware_iteration,(short) 3));
         }
     }
 
@@ -1120,7 +1137,7 @@ public class IPLS {
     // the updates already in order not to wait for him for no reason
     public void Update_WaitAck_List(){
         List<Triplet<String,Integer,Integer>> Black_List = new ArrayList<>();
-        for(int i = 0; PeerData.Wait_Ack_from_future !=null && i < PeerData.Wait_Ack_from_future.size(); i++){
+        for(int i = 0;PeerData.isSynchronous &&  PeerData.Wait_Ack_from_future !=null && i < PeerData.Wait_Ack_from_future.size() ; i++){
             if(PeerData.Wait_Ack_from_future.get(i).getValue2() == PeerData.middleware_iteration){
                 PeerData.Wait_Ack.remove(PeerData.Wait_Ack_from_future.get(i));
                 Black_List.add(PeerData.Wait_Ack_from_future.get(i));
@@ -1146,15 +1163,19 @@ public class IPLS {
                     continue;
                 }
                 // If everything is ok and you proceeded to the trainning phase, send the updates
-                if(PeerData.isSynchronous && !PeerData.First_Iter){
+                if(!PeerData.First_Iter ){
                     // Get the peer who is responsible for the partition
                     Send_Gradient_Partition(Partitions.get(i),GradientPartitions);
 
                 }
+
             }
             else{
                 System.out.println(">>>> NO PEER RESPONSIBLE FOR THAT PARTITION ( " + Partitions.get(i) +  " ) FOUND :(");
             }
+        }
+        if(PeerData.IPNS_Enable){
+            ipfsClass.publish_gradients(PeerData.GradientPartitions,2);
         }
 
         Update_WaitAck_List();
@@ -1176,36 +1197,44 @@ public class IPLS {
 
         //Wait to receive all gradients from clients
         System.out.println(PeerData.Client_Wait_Ack);
-        while(PeerData.Client_Wait_Ack.size() != 0){Thread.yield();}
+        while(PeerData.isSynchronous && PeerData.Client_Wait_Ack.size() != 0){Thread.yield();}
         System.out.println("ALL CLIENTS SEND THE GRADIENTS :)");
         //Next the peer must aggregate his gradients with the other peers
-        for(i = 0; i < PeerData.Auth_List.size(); i++){
-            ipfs.pubsub.pub(new Integer(PeerData.Auth_List.get(i)).toString(),ipfsClass.Marshall_Packet(PeerData.Weights.get(i),ipfs.id().get("ID").toString(),PeerData.middleware_iteration,PeerData.workers.get(PeerData.Auth_List.get(i)).size()+1,(short) 3));
+        for(i = 0; i < PeerData.Auth_List.size() && !PeerData.IPNS_Enable; i++){
+            ipfs.pubsub.pub(new Integer(PeerData.Auth_List.get(i)).toString(),ipfsClass.Marshall_Packet(PeerData.Aggregated_Gradients.get(PeerData.Auth_List.get(i)),ipfs.id().get("ID").toString(),PeerData.middleware_iteration,PeerData.workers.get(PeerData.Auth_List.get(i)).size()+1,(short) 3));
         }
 
+        if(PeerData.IPNS_Enable){
+            ipfsClass.publish_gradients(PeerData.GradientPartitions,3);
+        }
         //System.out.println(PeerData.Replica_Wait_Ack);
-        while(PeerData.Replica_Wait_Ack.size() != 0 ){Thread.yield();}
+        while(PeerData.isSynchronous && PeerData.Replica_Wait_Ack.size() != 0 ){Thread.yield();}
         //sendall the updated data
         System.out.println("ALL REPLICAS SEND GRADIENTS :^) ");
         PeerData.mtx.acquire();
         System.out.println("NEW CLIENTS " + PeerData.New_Clients);
 
-        for(i = 0; i < PeerData.Auth_List.size(); i++){
+        for(i = 0; i < PeerData.Auth_List.size() && PeerData.isSynchronous; i++){
 
             AggregatePartition(PeerData.Auth_List.get(i));
 
             for(j = 0;PeerData.Clients.get(PeerData.Auth_List.get(i))!=null &&  j < PeerData.Clients.get(PeerData.Auth_List.get(i)).size(); j++){
                 //Get the peer registered and send him the updated partition
                 Peer = PeerData.Clients.get(PeerData.Auth_List.get(i)).get(j);
-                ipfs.pubsub.pub(Peer,ipfsClass.Marshall_Packet(PeerData.Weights.get(PeerData.Auth_List.get(i)),ipfs.id().get("ID").toString(),PeerData.Auth_List.get(i),PeerData.middleware_iteration,(short)4));
+                if(!PeerData.IPNS_Enable){
+                    ipfs.pubsub.pub(Peer,ipfsClass.Marshall_Packet(PeerData.Weights.get(PeerData.Auth_List.get(i)),ipfs.id().get("ID").toString(),PeerData.Auth_List.get(i),PeerData.middleware_iteration,(short)4));
+                }
                 PeerData.Client_Wait_Ack.add(new Triplet<>(Peer,PeerData.Auth_List.get(i),PeerData.middleware_iteration+1));
-
             }
             //for(j = 0; j < PeerData.Replica_holders.get(PeerData.Auth_List.get(i)).size(); j++){
             //    Peer = PeerData.Replica_holders.get(PeerData.Auth_List.get(i)).get(j);
             //    PeerData.Replica_Wait_Ack.add(new Pair<>(Peer,PeerData.Auth_List.get(i)));
             //}
         }
+        if(PeerData.IPNS_Enable){
+            ipfsClass.publish_gradients(PeerData.Weights,4);
+        }
+
 
         PeerData.mtx.release();
     }
@@ -1238,6 +1267,14 @@ public class IPLS {
         }
         for(int i = 0; i < Black_List.size(); i++){
             PeerData.Client_Wait_Ack_from_future.remove(Black_List.get(i));
+        }
+
+        // Replace the Aggregated Gradients with those collected from future, and the gradients from future to zero
+        for(int i = 0; i < PeerData.Auth_List.size(); i++){
+            for(int j = 0; j < PeerData.Aggregated_Gradients.get(PeerData.Auth_List.get(i)).size(); j++){
+                PeerData.Aggregated_Gradients.get(PeerData.Auth_List.get(i)).set(j,PeerData.Aggregated_Gradients_from_future.get(PeerData.Auth_List.get(i)).get(j));
+                PeerData.Aggregated_Gradients_from_future.get(PeerData.Auth_List.get(i)).set(j,0.0);
+            }
         }
     }
 
@@ -1331,8 +1368,18 @@ public class IPLS {
             //Put the request to the Updater
             //System.out.println("PUT GRADIENTS : " +  PeerData.Auth_List.get(i));
             //PeerData.Client_Wait_Ack.add(new Pair<>(PeerData._ID,PeerData.Auth_List.get(i)));
-            PeerData.queue.add(new Quintet<>(ipfs.id().get("ID").toString(),PeerData.Auth_List.get(i),PeerData.middleware_iteration,true,GradientPartitions.get(PeerData.Auth_List.get(i))));
-          
+            if(!PeerData.isSynchronous){
+                PeerData.queue.add(new Quintet<>(ipfs.id().get("ID").toString(),PeerData.Auth_List.get(i),PeerData.middleware_iteration,true,GradientPartitions.get(PeerData.Auth_List.get(i))));
+            }
+            else{
+                PeerData.mtx.acquire();
+                for(j = 0; j < PeerData.Aggregated_Gradients.get(PeerData.Auth_List.get(i)).size(); j++) {
+                    PeerData.Aggregated_Gradients.get(PeerData.Auth_List.get(i)).set(j, PeerData.Aggregated_Gradients.get(PeerData.Auth_List.get(i)).get(j) + GradientPartitions.get(PeerData.Auth_List.get(i)).get(j));
+
+                }
+                PeerData.mtx.release();
+            }
+
         }
 
         PeerData.Test_mtx.acquire();
@@ -1352,8 +1399,10 @@ public class IPLS {
         // Wait to get updated partitions that i am not responsible for
         while(PeerData.Wait_Ack.size() != 0){Thread.yield();}
 
-        Update_Client_List();
-        System.out.println("ALL SERVERS SEND THE UPDATES : " + PeerData.Servers_Iteration);
+        if(PeerData.isSynchronous){
+            Update_Client_List();
+            System.out.println("ALL SERVERS SEND THE UPDATES : " + PeerData.Servers_Iteration);
+        }
 
         if(!PeerData.isSynchronous){
             PeerData.weightsMtx.acquire();
@@ -1392,6 +1441,9 @@ public class IPLS {
         for(i = 0; i < PeerData._PARTITIONS; i++){
             PeerData.Weights.put(i,new ArrayList<>());
             PeerData.Aggregated_Gradients.put(i,new ArrayList<>());
+            PeerData.Replicas_Gradients.put(i,new ArrayList<>());
+
+            PeerData.Aggregated_Gradients_from_future.put(i,new ArrayList<>());
             PeerData.Stored_Gradients.put(i,new ArrayList<>());
             PeerData.Weight_Address.put(i,new ArrayList<>());
         }
@@ -1403,6 +1455,8 @@ public class IPLS {
             for(j = i*chunk_size; j < (i+1)*chunk_size && j < PeerData._MODEL_SIZE; j++){
                 PeerData.Weights.get(i).add(Model.get(j));
                 PeerData.Aggregated_Gradients.get(i).add(0.0);
+                PeerData.Replicas_Gradients.get(i).add(0.0);
+                PeerData.Aggregated_Gradients_from_future.get(i).add(0.0);
                 PeerData.Stored_Gradients.get(i).add(0.0);
                 PeerData.Weight_Address.get(i).add(0.0);
                 
@@ -1517,7 +1571,7 @@ public class IPLS {
     //Main will become init method for the IPLS API
     //Here the peer will first interact with the other
     //peers in the swarm and take the responsibilities
-    public void init(String path,List<String> BootstrampPeers,boolean bootstraper) throws Exception {
+    public void init(String path,String fileName,List<String> BootstrampPeers,boolean bootstraper, long model_size) throws Exception {
         int i = 0;
         //This is a list showing which partitions are missing from PeerData
         // in the initialization phase, in order to put them in our authority
@@ -1526,8 +1580,7 @@ public class IPLS {
         org.javatuples.Pair<String,Integer> tuple;
         PeerData.Bootstrapers = BootstrampPeers;
         PeerData.Path = path;
-        PeerData._MODEL_SIZE = 80730;
-        PeerData.isSynchronous = true;
+        PeerData._MODEL_SIZE = model_size;
         InitializeWeights();
         for (i = 0; i < _PARTITIONS; i++) {
             PeerData.Partition_Availability.put(i,new ArrayList<>());
@@ -1548,7 +1601,6 @@ public class IPLS {
 
         ipfsClass = new MyIPFSClass(path);
         ipfs = new IPFS(path);
-
         PeerData._ID = ipfs.id().get("ID").toString();
         
         System.out.println("ID : " + PeerData._ID);
@@ -1573,7 +1625,7 @@ public class IPLS {
         //For now we pick the weights from a file
         //****************************************************//
 
-        FileInputStream fin = new FileInputStream("ETHModel");
+        FileInputStream fin = new FileInputStream(fileName);
         ObjectInputStream oin = new ObjectInputStream(fin);
         
         List<Double> Lmodel = (List<Double>)oin.readObject();
@@ -1699,6 +1751,7 @@ public class IPLS {
             }
         }
 
+        ipfsClass.initialize_IPLS_directory();
 
         File f = new File(ipfs.id().get("ID").toString()+"ETHModel");
         f.createNewFile();

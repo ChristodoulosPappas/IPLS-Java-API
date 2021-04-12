@@ -16,6 +16,8 @@ import org.nd4j.linalg.lossfunctions.LossFunctions;
 import org.nd4j.shade.guava.primitives.Doubles;
 
 import org.apache.commons.cli.*;
+import org.web3j.abi.datatypes.Int;
+
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.util.*;
@@ -53,7 +55,17 @@ public class MnistTest{
 
         public static void main(String[] args) throws Exception{
                 int new_key,pid;
-                MyIPFSClass ipfs = new MyIPFSClass("/ip4/127.0.0.1/tcp/5005");
+                Map<Integer,List<Double>> arr = new HashMap<>();
+                MyIPFSClass ipfs = new MyIPFSClass("/ip4/127.0.0.1/tcp/5001");
+                Random rd = new Random();
+                PeerData._ID = "12D3KooWRrcW2QLp6dWXnrCGyoQFehLYEpqzaaEi798qhPvjePbj";
+                Map<Integer,Integer> ser = new HashMap<>();
+                System.out.println(ser.get(1) == 2);
+                //ipfs.initialize_IPLS_directory();
+                //ipfs.publish_gradients(arr,2);
+                //ipfs.DownloadParameters("/ipfs/QmPJzwi5ppuh6jKX1bJ1KMotAjzeHS66p9KjxiqRzmAZ2p/7_Updates");
+
+                /*
                 PeerData._ID = "CXYZ";
                 String decodedString  = ipfs._START_TRAINING();
                 byte[] bytes_array = Base64.getUrlDecoder().decode(decodedString);
@@ -65,7 +77,7 @@ public class MnistTest{
                 pid = rbuff.getShort();
                 System.out.println(pid);
                 System.out.println(ipfs.Get_Peer(rbuff,bytes_array,Short.BYTES).length());
-
+                */
         }
 
 
