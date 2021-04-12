@@ -443,8 +443,6 @@ class ThreadReceiver extends Thread{
                 //if(PeerData.middleware_iteration > 0 && ReplyPair.getValue2() == 0){
                 //    ipfs.pubsub.pub(ReplyPair.getValue0(),AuxilaryIpfs.Marshall_Packet(PeerData.Weights.get(ReplyPair.getValue1()),ipfs.id().get("ID").toString(),ReplyPair.getValue1(),PeerData.middleware_iteration,(short)3));
                 //}
-                System.out.println(PeerData.Wait_Ack);
-                System.out.println(pair);
                 if (PeerData.Wait_Ack.contains(pair)) {
                     PeerData.Wait_Ack.remove(pair);
                 }
