@@ -96,13 +96,14 @@ class Console extends Thread{
 // The datasets and other related files are on the file MNIST_Partitioned_Dataset
 // If you want to run this program, then you should follow these steps:
 // 1) Create a private IPFS network
-// 2) Start a Model process for the bootstraper process with : -a /ip4/127.0.0.1/tcp/xxx -topic 1 -bID XXXX(the peers ID) -p 16 -mp 2 -b true -n 4
+// 2) Start a Model process for the bootstraper process with : -a /ip4/127.0.0.1/tcp/(Port_number of the IPFS API address of that node) -topic 1 -bID XXXX(the peers ID) -p 16 -mp 2 -b true -n 4
 // 3) Start the Computational_Server in order not to train ever model in parallel (otherwise it might destroy your PC ) with : /ip4/127.0.0.1/tcp/YYYY
 // The start each peer and for each of the 4 peers use the bellow :
-// 4) -a /ip4/127.0.0.1/tcp/ZZZZ -topic 2 -bID XXXX (Bootstrapers hash id) -p 16 -mp 4 -b false -n 4 -IPNS false
-// 5) -a /ip4/127.0.0.1/tcp/AAAA -topic 3 -bID XXXX (Bootstrapers hash id) -p 16 -mp 4 -b false -n 4 -IPNS false
-// 6) -a /ip4/127.0.0.1/tcp/VVVV -topic 4 -bID XXXX (Bootstrapers hash id) -p 16 -mp 4 -b false -n 4 -IPNS false
-// 7) -a /ip4/127.0.0.1/tcp/BBBV -topic 5 -bID XXXX (Bootstrapers hash id) -p 16 -mp 4 -b false -n 4 -IPNS false
+// 4) -a /ip4/127.0.0.1/tcp/(Port_number of the IPFS API address of that node) -topic 2 -bID XXXX (Bootstrapers hash id) -p 16 -mp 4 -b false -n 4 -IPNS false
+// 5) -a /ip4/127.0.0.1/tcp/(Port_number of the IPFS API address of that node) -topic 3 -bID XXXX (Bootstrapers hash id) -p 16 -mp 4 -b false -n 4 -IPNS false
+// 6) -a /ip4/127.0.0.1/tcp/(Port_number of the IPFS API address of that node) -topic 4 -bID XXXX (Bootstrapers hash id) -p 16 -mp 4 -b false -n 4 -IPNS false
+// 7) -a /ip4/127.0.0.1/tcp/(Port_number of the IPFS API address of that node) -topic 5 -bID XXXX (Bootstrapers hash id) -p 16 -mp 4 -b false -n 4 -IPNS false
+
 
 /*
     In order to start an IPLS project, you must define also some important hyper parameters which are:
@@ -274,7 +275,8 @@ public class Model {
         ///                             CONFIGURE YOUR MODEL
 
         /* =================================================================================== */
-
+        // NOTE!!! You can use whatever framework you want as long as for each training round you can receive the
+        // new parameters of the model and also change the weights of the model.
         /*
         MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
                 .seed(rngSeed) //include a random seed for reproducibility
@@ -369,7 +371,7 @@ public class Model {
         // TRAIN THE MODEL
         for(i = 0; i < 50; i++){
             /* ===================================== */
-            // GET THE PARTITIONS FROM THE IPLS SYSTEM
+            // GET THE GLOBAL PARTITIONS FROM THE IPLS SYSTEM
 
             arr = ipls.GetPartitions();
 
@@ -385,8 +387,12 @@ public class Model {
             Evaluation eval = model.evaluate(mnistTest);
             System.out.println(eval.stats());
             System.out.println("****************Example finished********************");
+
+            // This method is going to train the model in only one processor so that you can run
+            // many nodes when you are using only one pc and you want to experiment with IPLS.
             remote_fit();
 
+            // In this function you get the W[i] - W[i-1] (difference of the locally updated model and the global model received from ipls.GetPartitions();)
             gradient = GetDiff(model.params(),Dumm);
             gradient = gradient.mul(1);
             //HERE GO UPDATE METHOD
