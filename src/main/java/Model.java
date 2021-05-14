@@ -358,7 +358,12 @@ public class Model {
 
         DataSet myData = new DataSet(TotalInput,TotalLabels);
         List<DataSet> Dlist = myData.asList();
-        DataSetIterator mni = new ListDataSetIterator(Dlist,100);
+
+        FileInputStream bis = new FileInputStream("MNIST_Partitioned_Dataset/"+topic + "TrainDataset");
+        ObjectInputStream in = new ObjectInputStream(bis);
+        DataSetIterator mni = (DataSetIterator)in.readObject();
+        in.close();
+        bis.close();
 
         FileOutputStream fos = new FileOutputStream("MNIST_Partitioned_Dataset/"+topic+"data");
         ObjectOutputStream oos = new ObjectOutputStream(fos);

@@ -1194,7 +1194,7 @@ public class IPLS {
         String Peer;
 
         //Wait to receive all gradients from clients
-        System.out.println(PeerData.Client_Wait_Ack);
+        //System.out.println(PeerData.Client_Wait_Ack);
         while(PeerData.isSynchronous && PeerData.Client_Wait_Ack.size() != 0){Thread.yield();}
         System.out.println("ALL CLIENTS SEND THE GRADIENTS :)");
         //Next the peer must aggregate his gradients with the other peers
