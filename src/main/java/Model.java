@@ -344,17 +344,20 @@ public class Model {
         List<Double> acc = new ArrayList<>();
 
         // CREATE IPLS OBJECT
-        ipls = new IPLS();
+        ipls = new IPLS(Path,"MNIST_Partitioned_Dataset/ETHModel",Bootstrapers,isBootstraper,model.params().length());
 
         // START INITIALIZATION PHASE
-        ipls.init(Path,"MNIST_Partitioned_Dataset/ETHModel",Bootstrapers,isBootstraper,model.params().length());
 
         //IF I AM BOOTSTRAPER THEN DO NOT CONTINUE
         if(isBootstraper){
+            ipls.init();
             while (true){
 
             }
         }
+
+        Light_IPLS_Daemon ipls_daemon = new Light_IPLS_Daemon(ipls);
+        ipls_daemon.start();
 
         DataSet myData = new DataSet(TotalInput,TotalLabels);
         List<DataSet> Dlist = myData.asList();
@@ -378,23 +381,32 @@ public class Model {
             /* ===================================== */
             // GET THE GLOBAL PARTITIONS FROM THE IPLS SYSTEM
 
-            arr = ipls.GetPartitions();
+            arr = ipls_daemon.Get_Partitions();
 
             /* ===================================== */
 
             for(int j = 0; j < model.params().length(); j++){
                Dumm.put(0,j,arr.get(j));
             }
-
+            double parameters_norm = 0;
+            for(int j = 0; j < model.params().length(); j++){
+                parameters_norm += arr.get(j)*(j%50 + 1);
+            }
+            System.out.println("==========================");
+            System.out.println("NORM : " + parameters_norm);
+            System.out.println("==========================");
             model.setParams(Dumm);
+
+            /*
             System.out.println("Evaluate model....");
 
             Evaluation eval = model.evaluate(mnistTest);
             System.out.println(eval.stats());
             System.out.println("****************Example finished********************");
-
+            */
             // This method is going to train the model in only one processor so that you can run
             // many nodes when you are using only one pc and you want to experiment with IPLS.
+            System.out.println("START TRAINING");
             remote_fit();
 
             // In this function you get the W[i] - W[i-1] (difference of the locally updated model and the global model received from ipls.GetPartitions();)
@@ -408,7 +420,7 @@ public class Model {
                 System.out.println("ITERATION : "+ i);
             }
             // UPDATE THE MODEL USING IPLS
-            ipls.UpdateGradient(Doubles.asList(gradient.getRow(0).toDoubleVector()));
+            ipls_daemon.UpdateModel(Doubles.asList(gradient.getRow(0).toDoubleVector()));
 
 
             System.gc();

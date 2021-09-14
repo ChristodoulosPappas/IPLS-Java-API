@@ -7,19 +7,22 @@ import org.javatuples.Quintet;
 import org.javatuples.Triplet;
 import org.web3j.abi.datatypes.Int;
 
+import javax.crypto.SecretKey;
 import javax.naming.InsufficientResourcesException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Semaphore;
 
 public class PeerData {
+
+    public static Download_Scheduler aggregation_download_scheduler;
+    public static Download_Scheduler updates_download_scheduler;
+
     public static Semaphore InitSem = new Semaphore(0);
     public static Semaphore mtx = new Semaphore(1);
+    public static Semaphore com_mtx = new Semaphore(1);
     public static Semaphore SendMtx = new Semaphore(1);
     public static Semaphore weightsMtx = new Semaphore(1);
 
@@ -38,11 +41,15 @@ public class PeerData {
     public static boolean First_Iter = true;
     // Boolean value indicating if the system is using SGD or Asynchronous GD
     public static boolean isSynchronous = true;
+    public static boolean Relaxed_SGD = true;
     public static boolean isBootsraper;
+    public static boolean training_finished = false;
     public static int _Iter_Clock = 0;
     public static String _ID = null;
+    public static String Schedule_Hash = null;
     public static String MyPublic_Multiaddr = null;
     public static int Index = 0;
+    public static int used_commitments = 0;
     public static int is_alive_counter = 0;
     // The global logical clock of the system indicating the global iteration. This is used only in SGD
     public static int middleware_iteration = 0;
@@ -51,8 +58,10 @@ public class PeerData {
     public static boolean training_phase = false;
     public static boolean IPNS_Enable = false;
 
-
     volatile public static int STATE = 0;
+
+
+    public static List<Integer> current_schedule = new ArrayList<>();
 
     //These variables are used for analyzing the system
     public static Semaphore Test_mtx = new Semaphore(1);
@@ -65,6 +74,14 @@ public class PeerData {
     public static BlockingQueue<String> GGP_queue = new LinkedBlockingQueue<>();
     //Blocking Queue, for Global Gradients Authority updates
     public static BlockingQueue<Pair<Integer,Integer>> UpdateQueue = new LinkedBlockingQueue<>();
+
+    //This data structure is used so that the peers can get the data of the
+    // partitions that they become responsible for
+    public static Map<Integer,String> Hash_Partitions = new HashMap<>();
+    public static List<String> Downloaded_Hashes = new ArrayList<>();
+    public static Map<String, SecretKey> Hash_Keys = new HashMap<>();
+    public static Map<Integer,List<Triplet<String,String,Integer>>> Committed_Hashes = new HashMap<>();
+    public static Map<Integer,Pair<String,SecretKey>> key_dir = new HashMap<>();
 
 
     public static Map<Integer,List<Double>> GradientPartitions = new HashMap<>();
@@ -128,7 +145,13 @@ public class PeerData {
     public static Map<String,Integer> Servers_Iteration = new HashMap<>();
     public static Map<String,Integer> Clients_Iteration = new HashMap<>();
 
+
     //For testings
     public static int num;
-
+    // This structure maintains a log that contains important debugging and other data
+    public static Map<String,List<Object>> _LOG = new HashMap<>();
+    public static Map<String,Integer> _PEER_DOWNLOAD_TIME = new HashMap<>();
+    public static int commited_hashes = 0;
+    public static int downloaded_hashes = 0;
+    public static int downloaded_updates = 0;
 }

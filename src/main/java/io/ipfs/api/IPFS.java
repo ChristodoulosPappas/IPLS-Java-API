@@ -125,14 +125,14 @@ public class IPFS {
     }
 
     public byte[] cat(String hash) throws IOException {
-        return retrieve("cat?arg=" + hash);
+        return retrieve("cat?arg=" + hash );
     }
 
-    public byte[] cat(Multihash hash, String subPath) throws IOException {
+    public byte[] cat(String hash, String subPath) throws IOException {
         return retrieve("cat?arg=" + hash + URLEncoder.encode(subPath, "UTF-8"));
     }
 
-    public byte[] get(Multihash hash) throws IOException {
+    public byte[] get(String hash) throws IOException {
         return retrieve("get?arg=" + hash);
     }
 
@@ -443,7 +443,7 @@ public class IPFS {
     }
 
     public class DHT {
-        public List<Map<String, Object>> findprovs(Multihash hash) throws IOException {
+        public List<Map<String, Object>> findprovs(String hash) throws IOException {
             return getAndParseStream("dht/findprovs?arg=" + hash).stream()
                     .map(x -> (Map<String, Object>) x)
                     .collect(Collectors.toList());
@@ -453,8 +453,8 @@ public class IPFS {
             return retrieveMap("dht/query?arg=" + peerId.toString());
         }
 
-        public Map findpeer(Multihash id) throws IOException {
-            return retrieveMap("dht/findpeer?arg=" + id.toString());
+        public Map findpeer(String id) throws IOException {
+            return retrieveMap("dht/findpeer?arg=" + id);
         }
 
         public Map get(Multihash hash) throws IOException {
@@ -731,6 +731,7 @@ public class IPFS {
             int r;
             while ((r = in.read(buf)) >= 0)
                 resp.write(buf, 0, r);
+            in.close();
             return resp.toByteArray();
         } catch (ConnectException e) {
             throw new RuntimeException("Couldn't connect to IPFS daemon at "+target+"\n Is IPFS running?");
@@ -792,6 +793,7 @@ public class IPFS {
 
     private static InputStream getStream(URL target, int timeout) throws IOException {
         HttpURLConnection conn = configureConnection(target, "POST", timeout);
+
         return conn.getInputStream();
     }
 

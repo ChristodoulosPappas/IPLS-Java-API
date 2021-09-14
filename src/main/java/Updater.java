@@ -40,12 +40,12 @@ public class Updater extends Thread{
                 PeerData.mtx.acquire();
 
                 if((PeerData.Replica_holders.get(Partiton).contains(Origin) && iteration == PeerData.middleware_iteration) || (PeerData.New_Replicas.get(Partiton).contains(Origin) && iteration == PeerData.middleware_iteration)){
-                    for( i = 0; i < PeerData.Aggregated_Gradients.get(Partiton).size(); i++){
+                    for( i = 0; i < PeerData.Aggregated_Gradients.get(Partiton).size() && Gradient != null; i++){
                         PeerData.Replicas_Gradients.get(Partiton).set(i, PeerData.Replicas_Gradients.get(Partiton).get(i) + Gradient.get(i));
                     }
                     PeerData.Replica_Wait_Ack.remove(new Triplet<>(Origin,Partiton,iteration));
                 }
-                else if((PeerData.Replica_holders.get(Partiton).contains(Origin) && iteration > PeerData.middleware_iteration) || (PeerData.New_Replicas.get(Partiton).contains(Origin) && iteration > PeerData.middleware_iteration)){
+                else if(((PeerData.Replica_holders.get(Partiton).contains(Origin) && iteration > PeerData.middleware_iteration) || (PeerData.New_Replicas.get(Partiton).contains(Origin) && iteration > PeerData.middleware_iteration)) && Gradient != null){
                     // Do something for replica holders only. Aggregate in future buffer
                     PeerData.Replica_Wait_Ack_from_future.add(new Triplet<>(Origin,Partiton,iteration));
                 }
@@ -76,23 +76,27 @@ public class Updater extends Thread{
                 // In case a node is so fast sto that he sends the new gradients before the other can finish or if there is a new peer then keep the gradients in a buffer
                 // and use them in the next iteration
                 if((!PeerData.Client_Wait_Ack.contains(new Triplet<>(Origin,Partiton,iteration)) && PeerData.Clients.get(Partiton).contains(Origin))||(PeerData.New_Clients.get(Partiton).contains(Origin))){
+                    System.out.println("Oups , " + iteration + " , " + PeerData.middleware_iteration + " , " + PeerData.Auth_List.contains(Partiton));
+                    // !!! This might change
                     if(PeerData.New_Clients.get(Partiton).contains(Origin) && PeerData.middleware_iteration >= iteration){
-                        if(!PeerData.workers.get(Partiton).contains(Origin)) {
+                        if(!PeerData.workers.get(Partiton).contains(Origin) && Gradient != null) {
                             PeerData.workers.get(Partiton).add(Origin);
                         }
-                        for(i = 0; i < PeerData.Weights.get(Partiton).size(); i++){
+                        for(i = 0; i < PeerData.Weights.get(Partiton).size() && Gradient != null; i++){
                             PeerData.Aggregated_Gradients.get(Partiton).set(i, PeerData.Aggregated_Gradients.get(Partiton).get(i) + Gradient.get(i));
                         }
                     }
-                    PeerData.Client_Wait_Ack_from_future.add(new Triplet<>(Origin,Partiton,iteration));
+                    if(PeerData.middleware_iteration <= iteration){
+                        PeerData.Client_Wait_Ack_from_future.add(new Triplet<>(Origin,Partiton,iteration));
+                    }
                 }
                 else if(PeerData.Clients.containsKey(Origin) && PeerData.middleware_iteration < iteration){
                     System.out.println("RECEIVED GRADIENTS FROM FUTURE ? :^)");
                     PeerData.Client_Wait_Ack_from_future.add(new Triplet<>(Origin,Partiton,iteration));
-                    if(!PeerData.workers.get(Partiton).contains(Origin)) {
+                    if(!PeerData.workers.get(Partiton).contains(Origin) && Gradient != null) {
                         PeerData.workers.get(Partiton).add(Origin);
                     }
-                    for(i = 0; i < PeerData.Weights.get(Partiton).size(); i++){
+                    for(i = 0; i < PeerData.Weights.get(Partiton).size() && Gradient != null; i++){
                         PeerData.Aggregated_Gradients_from_future.get(Partiton).set(i,PeerData.Aggregated_Gradients_from_future.get(Partiton).get(i) + Gradient.get(i));
                     }
                     for(int j = 0; j < PeerData.Client_Wait_Ack.size(); j++){
@@ -103,10 +107,11 @@ public class Updater extends Thread{
                     }
                 }
                 else{
-                    if(!PeerData.workers.get(Partiton).contains(Origin)) {
+                    //System.out.println("Received Gradients");
+                    if(!PeerData.workers.get(Partiton).contains(Origin) && Gradient != null) {
                         PeerData.workers.get(Partiton).add(Origin);
                     }
-                    for(i = 0; i < PeerData.Weights.get(Partiton).size(); i++){
+                    for(i = 0; i < PeerData.Weights.get(Partiton).size() && Gradient != null; i++){
                         PeerData.Aggregated_Gradients.get(Partiton).set(i, PeerData.Aggregated_Gradients.get(Partiton).get(i) + Gradient.get(i));
                     }
                     PeerData.Client_Wait_Ack.remove(new Triplet<>(Origin,Partiton,iteration));
@@ -135,9 +140,8 @@ public class Updater extends Thread{
         int partition,iteration;
         boolean from_clients;
         List<Double> Gradient;
-        String PeerId,reply;
+        String PeerId;
         Quintet<String,Integer,Integer,Boolean, List<Double>> request;
-        Multihash hash;
         try {
             while (true) {
                 request = PeerData.queue.take();
@@ -166,7 +170,6 @@ public class Updater extends Thread{
                         PeerData.Aggregated_Gradients.get(partition).set(i,0.0);
                     }
                 }
-
             }
         }
         catch (Exception e) {

@@ -29,6 +29,14 @@ class GGP_Receiver extends Thread{
         }
     }
 
+    public List<Double> get_replica_update(List<Double> replica, int participants){
+        List<Double> updated_replica = new ArrayList<>();
+        for(int i = 0; i < replica.size(); i++){
+            updated_replica.add(replica.get(i)*participants);
+        }
+        return updated_replica;
+    }
+
     public byte[] get_bytes(JSONObject obj){
         String decodedString,encodedString;
         byte[] decodedBytes;
@@ -48,7 +56,6 @@ class GGP_Receiver extends Thread{
         int partition;
         short pid;
         JSONObject obj;
-        JSONArray jArray;
         ipfsClass = new MyIPFSClass(PeerData.Path);
 
         obj = new JSONObject(RecvData);
@@ -63,7 +70,7 @@ class GGP_Receiver extends Thread{
                 return;
             }
             if(!tuple.getValue0().equals(PeerData._ID)){
-                Quintet<String,Integer,Integer,Boolean,List<Double>> newtuple = new Quintet<>(tuple.getValue0(),partition,tuple.getValue1(),false,tuple.getValue3());
+                Quintet<String,Integer,Integer,Boolean,List<Double>> newtuple = new Quintet<>(tuple.getValue0(),partition,tuple.getValue1(),false,get_replica_update(tuple.getValue3(),tuple.getValue2()));
                 update_participants(partition,tuple.getValue2());
                 PeerData.queue.add(newtuple);
             }

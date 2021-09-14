@@ -1,25 +1,36 @@
 import io.ipfs.api.*;
 import io.ipfs.multihash.Multihash;
+import org.javatuples.*;
 import org.javatuples.Pair;
-import org.javatuples.Quartet;
-import org.javatuples.Triplet;
-import org.javatuples.Tuple;
 import org.web3j.abi.datatypes.Int;
+import org.web3j.abi.datatypes.Type;
 
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
 import java.io.*;
 import java.nio.ByteBuffer;
+import java.security.SecureRandom;
+import java.time.Instant;
 import java.time.Period;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.Semaphore;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class MyIPFSClass {
     public static IPFS ipfsObj;
+    public static Semaphore mtx = new Semaphore(1);
 
     public MyIPFSClass(String Path) {
         ipfsObj = new IPFS(Path);
+    }
+    public MyIPFSClass(String Path, int timeout) {
+        ipfsObj = new IPFS(Path);
+        ipfsObj.timeout(timeout);
     }
     public MyIPFSClass(){}
 
@@ -65,13 +76,24 @@ public class MyIPFSClass {
         return node.get(node.size()-1).hash;
     }
 
-    public static  void Update_file(String filename, List<Double> Weights) throws Exception {
+    public static void Update_file(String filename, List<?> Weights,SecretKey key) throws Exception {
+        byte[] bytes = encrypt(Weights,key);
+        FileOutputStream fos = new FileOutputStream(filename);
+        ObjectOutputStream oos = new ObjectOutputStream(fos);
+        oos.writeObject(bytes);
+        oos.close();
+        fos.close();
+        bytes = null;
+    }
+
+    public static  void Update_file(String filename, List<?> Weights) throws Exception {
         FileOutputStream fos = new FileOutputStream(filename);
         ObjectOutputStream oos = new ObjectOutputStream(fos);
         oos.writeObject(Weights);
         oos.close();
         fos.close();
     }
+    
     public static void Update_file(String filename, Map<Integer,Integer> Participants) throws Exception {
         FileOutputStream fos = new FileOutputStream(filename);
         ObjectOutputStream oos = new ObjectOutputStream(fos);
@@ -79,7 +101,6 @@ public class MyIPFSClass {
         oos.close();
         fos.close();
     }
-
 
     //Case state == 1, then we write a gradients file
     //Case state == 2, then we write only in the gradients the iteration number
@@ -137,7 +158,7 @@ public class MyIPFSClass {
     }
 
 
-    public Multihash _Upload_File(List<Double> Weights, String filename) throws IOException {
+    public Multihash _Upload_File(List<?> Weights, String filename) throws IOException {
         //Serialize the Partition model into a file
         FileOutputStream fos = new FileOutputStream(filename);
         ObjectOutputStream oos = new ObjectOutputStream(fos);
@@ -159,7 +180,28 @@ public class MyIPFSClass {
         return  add_file(filename);
     }
 
-    public  List<Double> DownloadParameters(String hash) throws IOException, ClassNotFoundException {
+    public boolean Download_Updates(String Hash){
+        try {
+            ipfsObj.get(Hash);
+            return true;
+        }
+        catch(Exception e){
+            System.out.println("time out");
+            return false;
+        }
+    }
+
+    public byte[] Get_bytes(String hash) throws Exception {
+        byte[] bytes;
+        ByteArrayInputStream bis = new ByteArrayInputStream(ipfsObj.cat(hash));
+        ObjectInput in = new ObjectInputStream(bis);
+        bytes = (byte[]) in.readObject();
+        in.close();
+        bis.close();
+        return bytes;
+    }
+
+    public  List<?> DownloadParameters(String hash) throws IOException, ClassNotFoundException {
         //IPFS ipfsObj = new IPFS("/ip4/127.0.0.1/tcp/5001");
         byte[] data;
         List<Double> Numerical_data = new ArrayList<>();
@@ -174,6 +216,33 @@ public class MyIPFSClass {
         in.close();
         bis.close();
         return Numerical_data;
+    }
+
+    static List<String> find_providers(String Hash) throws Exception{
+        List<String> providers = new ArrayList<>();
+        List<Map<String, Object>> rval = ipfsObj.dht.findprovs(Hash);
+        for(int i = 0; i < rval.size(); i++){
+            if(rval.get(i).get("Responses") != null && rval.get(i).get("Type").toString().equals("4") ){
+                List<Map<String,Object>> arr = (List<Map<String, Object>>) rval.get(i).get("Responses");
+                providers.add(arr.get(0).get("ID").toString());
+            }
+        }
+        return providers;
+    }
+
+    static boolean has_providers(String Hash) throws Exception{
+        List<String> providers = find_providers(Hash);
+        for(int i = 0; i < providers.size(); i++){
+            try {
+                Map peers = ipfsObj.dht.findpeer(providers.get(i));
+                if(peers.get("Responses") != null) {
+                    return true;
+                }
+            }
+            catch(Exception e){}
+
+        }
+        return false;
     }
 
     public Map<Integer,Integer> DownloadMap(String hash) throws Exception{
@@ -193,7 +262,45 @@ public class MyIPFSClass {
 
     }
 
-    public List<Double> Get_Message(String Peer,String Path) throws Exception{
+    public static SecretKey Generate_key() throws Exception{
+        KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
+
+        SecureRandom secureRandom = new SecureRandom();
+        int keyBitSize = 256;
+        keyGenerator.init(keyBitSize, secureRandom);
+        return keyGenerator.generateKey();
+    }
+
+    public static byte[] encrypt(List<?> Arr,SecretKey key) throws Exception{
+        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+        cipher.init(Cipher.ENCRYPT_MODE,key,new IvParameterSpec(new byte[16]));
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        ObjectOutputStream oos = new ObjectOutputStream(bos);
+        oos.writeObject(Arr);
+        byte[] bytes = bos.toByteArray();
+        byte[] encrypted_bytes;
+
+        oos.close();
+        bos.close();
+        encrypted_bytes = cipher.doFinal(bytes);
+
+        return encrypted_bytes;
+    }
+
+    public static List<?> decrypt(byte[] encrypted_data,SecretKey key) throws Exception{
+        Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+        cipher.init(Cipher.DECRYPT_MODE,key,new IvParameterSpec(new byte[16]));
+        byte[] bytes = cipher.doFinal(encrypted_data);
+        ByteArrayInputStream bis = new ByteArrayInputStream(bytes);
+        //System.out.println(bis);
+        ObjectInput in = new ObjectInputStream(bis);
+        List<Double> Numerical_data = (List<Double>) in.readObject();
+        in.close();
+        bis.close();
+        return Numerical_data;
+    }
+
+    public List<?> Get_Message(String Peer,String Path) throws Exception{
         return DownloadParameters(check_peer(Peer) + "/" + Path);
     }
     public Map<Integer,Integer> Get_Participant_Number(String Peer,String Path) throws Exception{
@@ -227,6 +334,150 @@ public class MyIPFSClass {
 
     }
 
+    //Find in which global iteration the peer is based on its current schedule.
+    // In case the time the peer cannot find the global iteration of the system -1 is returned
+    public static int find_iter() throws Exception{
+        mtx.acquire();
+
+        for(int i = 0; i < (PeerData.current_schedule.size()-1)/4; i++){
+            if(PeerData.current_schedule.get(4*i + 2 + 1) > (int) Instant.now().getEpochSecond()){
+                mtx.release();
+                return PeerData.current_schedule.get(4*i + 3 + 1);
+            }
+
+        }
+        mtx.release();
+        return -1;
+    }
+
+    // Get the maximum time needed for the peer to
+    // train the model
+    public static int get_training_time() throws Exception{
+        if(find_iter() == -1){
+            return -1;
+        }
+        return  PeerData.current_schedule.get(1) - PeerData.current_schedule.get(0);
+    }
+
+    // Get the maximum pure time needed that the peer is going to
+    // use for the aggregation phase
+    public static int get_aggregation_time() throws Exception{
+        if(find_iter() == -1){
+            return -1;
+        }
+        return  PeerData.current_schedule.get(2) - PeerData.current_schedule.get(1);
+    }
+
+    // Get the maximum pure time needed that the peer is going to
+    // use for the synchronization phase
+    public static int get_synch_time() throws Exception{
+        if(find_iter() == -1){
+            return -1;
+        }
+        return  PeerData.current_schedule.get(3) - PeerData.current_schedule.get(2);
+    }
+
+    // Time until training must be completed
+    public static int training_elapse_time(int iteration){
+        if(PeerData.current_schedule.size() == 0 || PeerData.current_schedule.get(PeerData.current_schedule.size()-1) < iteration){
+            return -1;
+        }
+        int offset = iteration - PeerData.current_schedule.get(3+1);
+        if(offset < 0){
+            return -1;
+        }
+        return PeerData.current_schedule.get(offset*4 + 1);
+    }
+
+    // Time until aggregation must be completed
+    public int aggregation_elapse_time(int iteration){
+        if(PeerData.current_schedule.size() == 0 || PeerData.current_schedule.get(PeerData.current_schedule.size()-1) < iteration){
+            return -1;
+        }
+        int offset = iteration - PeerData.current_schedule.get(3 + 1);
+        if(offset < 0){
+            return -1;
+        }
+        return PeerData.current_schedule.get(offset*4 + 1 + 1);
+    }
+
+    // Time until replicas synchronization must be completed
+    public int synch_elapse_time(int iteration){
+        if(PeerData.current_schedule.size() == 0 || PeerData.current_schedule.get(PeerData.current_schedule.size()-1) < iteration){
+            return -1;
+        }
+        int offset = iteration - PeerData.current_schedule.get(3 + 1);
+        if(offset < 0){
+            return -1;
+        }
+        return PeerData.current_schedule.get(offset*4 + 2 + 1);
+    }
+
+
+    public int get_curr_time(){
+        return (int) Instant.now().getEpochSecond();
+    }
+
+    public void clear_client_wait_ack_list () throws InterruptedException {
+        if(PeerData.Client_Wait_Ack.size() > 0 && PeerData.Client_Wait_Ack.get(0).getValue2() <= PeerData.middleware_iteration){
+            PeerData.Client_Wait_Ack = new ArrayList<>();
+            System.out.println("CLEARING client_wait_ack list");
+        }
+
+    }
+
+
+    public void clear_wait_ack_list () throws InterruptedException {
+        if(PeerData.Wait_Ack.size() > 0 && PeerData.Wait_Ack.get(0).getValue2() <= PeerData.middleware_iteration){
+            PeerData.Wait_Ack = new ArrayList<>();
+            System.out.println("CLEARING WAIT ACK LIST! Time : " + get_curr_time() + " , next training time : " + training_elapse_time(PeerData.middleware_iteration+1) + " , " + PeerData.Wait_Ack);
+        }
+    }
+
+    public void clear_replica_wait_ack_list() throws InterruptedException{
+
+        if(PeerData.Replica_Wait_Ack.size() > 0 && PeerData.Replica_Wait_Ack.get(0).getValue2() <= PeerData.middleware_iteration){
+            PeerData.Replica_Wait_Ack = new ArrayList<>();
+        }
+
+    }
+
+    public void wait_next_iter() throws Exception{
+        if(PeerData.current_schedule.size() == 0){
+            return;
+        }
+        int iter = find_iter();
+        int sleep_time = synch_elapse_time(iter) - get_curr_time();
+        System.out.println(sleep_time + " , " + iter);
+        while(sleep_time > 0){
+            Thread.sleep(sleep_time*1000);
+            sleep_time = synch_elapse_time(iter) - get_curr_time();
+            System.out.println(sleep_time);
+        }
+        PeerData.middleware_iteration = find_iter();
+    }
+
+    public int get_number_of_commitments(){
+        int commitments = 0;
+        for(int i = 0; i < PeerData.Auth_List.size(); i++){
+            commitments += PeerData.Committed_Hashes.get(PeerData.Auth_List.get(i)).size();
+        }
+        return commitments;
+    }
+
+    public void download_schedule(String schedule_hash) throws Exception, ClassNotFoundException {
+        if(schedule_hash.equals("None")){
+            return;
+        }
+        mtx.acquire();
+        if(PeerData.current_schedule.size() == 0 || PeerData.current_schedule.get(0) < ((List<Integer>) DownloadParameters(schedule_hash)).get(0)){
+            System.out.println("REPLACING SCHEDULE");
+            PeerData.current_schedule = (List<Integer>) DownloadParameters(schedule_hash);
+            PeerData.Schedule_Hash = schedule_hash;
+            System.out.println("Schedule : " + PeerData.current_schedule + " , " + Instant.now().getEpochSecond());
+        }
+        mtx.release();
+    }
 
     public static void publish_key(String name, int partition) throws IOException {
         KeyInfo key;
@@ -377,15 +628,17 @@ public class MyIPFSClass {
     }
 
     public static String Marshall_Packet(List<Double> Responsibilities,String OriginPeer,int Partition,int iteration,short pid){
-        int i;
+        int i,responsibilities_size;
         byte[] finalbarr;
 
-        ByteBuffer buff = ByteBuffer.allocate(Double.BYTES * (Responsibilities.size()) + 3*Integer.BYTES+ Short.BYTES );
+        responsibilities_size = (Responsibilities == null)?0:Responsibilities.size();
+
+        ByteBuffer buff = ByteBuffer.allocate(Double.BYTES * (responsibilities_size) + 3*Integer.BYTES+ Short.BYTES );
         buff.putShort(0,pid);
-        buff.putInt(Short.BYTES, Responsibilities.size());
+        buff.putInt(Short.BYTES, responsibilities_size);
         buff.putInt(Short.BYTES+Integer.BYTES,Partition);
         buff.putInt(Short.BYTES+2*Integer.BYTES,iteration);
-        for(i = 0; i < Responsibilities.size(); i++){
+        for(i = 0; i < responsibilities_size; i++){
             buff.putDouble(i*Double.BYTES  + 3*Integer.BYTES + Short.BYTES ,Responsibilities.get(i));
         }
         byte[] barr = new byte[buff.remaining()];
@@ -467,7 +720,7 @@ public class MyIPFSClass {
         return Base64.getUrlEncoder().encodeToString(finalbarr);
     }
 
-    public static String Marshall_Packet(String Hash,String OriginPeer,int Partition,short pid) {
+    public static String Marshall_Packet(String Hash, String OriginPeer,int Partition,short pid) {
         int i;
         byte[] finalbarr;
 
@@ -491,6 +744,73 @@ public class MyIPFSClass {
             finalbarr[i] = OriginIdBytes[i - barr.length - Hash.length()];
         }
 
+        return Base64.getUrlEncoder().encodeToString(finalbarr);
+    }
+
+    public static String Marshall_Packet(String Hash, String OriginPeer,int Partition,int iteration,short pid) {
+        int i;
+        byte[] finalbarr;
+
+        ByteBuffer buff = ByteBuffer.allocate(2*Integer.BYTES + 3*Short.BYTES);
+        buff.putShort(0,pid);
+        buff.putShort(Short.BYTES,(short) Hash.length());
+        buff.putShort(2*Short.BYTES,(short) OriginPeer.length());
+        buff.putInt(3*Short.BYTES,Partition);
+        buff.putInt(3*Short.BYTES + Integer.BYTES,iteration);
+
+        byte[] barr = new byte[buff.remaining()];
+        byte[] HashBytes = Hash.getBytes();
+        byte[] OriginIdBytes = OriginPeer.getBytes();
+        buff.get(barr);
+        finalbarr = new byte[barr.length + Hash.length() + OriginPeer.length()];
+        for (i = 0; i < barr.length; i++) {
+            finalbarr[i] = barr[i];
+        }
+        for (i = barr.length; i < barr.length + Hash.length(); i++) {
+            finalbarr[i] = HashBytes[i - barr.length];
+        }
+        for (i = barr.length + Hash.length(); i < finalbarr.length; i++){
+            finalbarr[i] = OriginIdBytes[i - barr.length - Hash.length()];
+        }
+
+        return Base64.getUrlEncoder().encodeToString(finalbarr);
+    }
+    public static String Marshall_Packet(String OriginPeer, String Hash, int Partition, int iteration, SecretKey key, short pid) throws Exception{
+        byte[] key_bytes;
+        byte[] finalbarr;
+
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        ObjectOutputStream oos = new ObjectOutputStream(bos);
+        oos.writeObject(key);
+        key_bytes = bos.toByteArray();
+
+
+        ByteBuffer buff = ByteBuffer.allocate(3*Integer.BYTES + 3*Short.BYTES);
+        buff.putShort(0,pid);
+        buff.putShort(Short.BYTES,(short) Hash.length());
+        buff.putShort(2*Short.BYTES,(short) OriginPeer.length());
+        buff.putInt(3*Short.BYTES,Partition);
+        buff.putInt(3*Short.BYTES + Integer.BYTES,iteration);
+        buff.putInt(3*Short.BYTES + 2*Integer.BYTES,key_bytes.length);
+
+        byte[] barr = new byte[buff.remaining()];
+        byte[] HashBytes = Hash.getBytes();
+        byte[] OriginIdBytes = OriginPeer.getBytes();
+        buff.get(barr);
+        finalbarr = new byte[barr.length + Hash.length() + OriginPeer.length() + key_bytes.length];
+        for (int i = 0; i < barr.length; i++) {
+            finalbarr[i] = barr[i];
+        }
+        for (int i = barr.length; i < barr.length + Hash.length(); i++) {
+            finalbarr[i] = HashBytes[i - barr.length];
+        }
+        for (int i = barr.length + Hash.length(); i < barr.length + Hash.length() + OriginPeer.length(); i++){
+            finalbarr[i] = OriginIdBytes[i - barr.length - Hash.length()];
+        }
+
+        for (int i = barr.length+ Hash.length() + OriginPeer.length(); i < finalbarr.length; i++){
+            finalbarr[i] = key_bytes[i - (barr.length+ Hash.length() + OriginPeer.length())];
+        }
         return Base64.getUrlEncoder().encodeToString(finalbarr);
     }
 
@@ -527,6 +847,7 @@ public class MyIPFSClass {
         return Base64.getUrlEncoder().encodeToString(finalbarr);
 
     }
+
 
     public static String JOIN_PACKET(String Peer,int Partition,int iteration,short reply){
         ByteBuffer buff = ByteBuffer.allocate(2*Integer.BYTES  +  2*Short.BYTES);
@@ -654,6 +975,9 @@ public class MyIPFSClass {
         for(i = 0; i < arr_len; i++){
             Gradients.add(rbuff.getDouble());
         }
+        if(arr_len == 0){
+            Gradients = null;
+        }
         byte[] Id_array = new byte[bytes_array.length - arr_len*Double.BYTES - 3 *Integer.BYTES - Short.BYTES];
         for (i = arr_len * Double.BYTES + 3 * Integer.BYTES + Short.BYTES; i < bytes_array.length; i++) {
             Id_array[i - arr_len * Double.BYTES - 3 * Integer.BYTES - Short.BYTES] = bytes_array[i];
@@ -759,7 +1083,7 @@ public class MyIPFSClass {
         return Responsibilities;
     }
 
-    public Triplet<Integer,String,String> Get_ACK(ByteBuffer rbuff,  byte[] bytes_array){
+    public Triplet<Integer,String,String> Get_data_hash(ByteBuffer rbuff,  byte[] bytes_array){
         int Partition,i;
         short Hashsize,OriginPeerSize;
         String Hash,Origin_Peer;
@@ -779,10 +1103,69 @@ public class MyIPFSClass {
         }
 
         Hash = new String(Id_array);
-        System.out.println("HASH : " + Hash + " , " + Hash.length());
         Origin_Peer = new String(Origin_array);
         return new Triplet<>(Partition,Hash,Origin_Peer);
     }
+
+    public Quartet<Integer,Integer,String,String> Get_Commitment(ByteBuffer rbuff,  byte[] bytes_array){
+        int Partition,iter,i;
+        short Hashsize,OriginPeerSize;
+        String Hash,Origin_Peer;
+        Hashsize = rbuff.getShort();
+        OriginPeerSize = rbuff.getShort();
+        Partition = rbuff.getInt();
+        iter = rbuff.getInt();
+
+        byte[] Id_array = new byte[bytes_array.length -  2*Integer.BYTES - 3*Short.BYTES - OriginPeerSize];
+        byte[] Origin_array = new byte[bytes_array.length-  2*Integer.BYTES - 3*Short.BYTES - Hashsize];
+
+
+        for (i =  2*Integer.BYTES + 3*Short.BYTES; i < 2*Integer.BYTES + 3*Short.BYTES + Hashsize; i++) {
+            Id_array[i -  2*Integer.BYTES - 3*Short.BYTES] = bytes_array[i];
+        }
+        for (i = 2*Integer.BYTES + 3*Short.BYTES + Hashsize; i < bytes_array.length; i++){
+            Origin_array[i - 2*Integer.BYTES - 3*Short.BYTES - Hashsize] = bytes_array[i];
+        }
+
+        Hash = new String(Id_array);
+        Origin_Peer = new String(Origin_array);
+        return new Quartet<>(Partition,iter,Hash,Origin_Peer);
+    }
+
+    public Quintet<Integer,Integer,String,String,SecretKey> Get_SecretKey(ByteBuffer rbuff, byte[] bytes_array) throws Exception{
+        int Partition,iter,key_size,i;
+        short Hashsize,OriginPeerSize;
+        String Hash,Origin_Peer;
+        Hashsize = rbuff.getShort();
+        OriginPeerSize = rbuff.getShort();
+        Partition = rbuff.getInt();
+        iter = rbuff.getInt();
+        key_size = rbuff.getInt();
+
+        byte[] Id_array = new byte[Hashsize];
+        byte[] Origin_array = new byte[OriginPeerSize];
+        byte[] Key_array = new byte[key_size];
+
+        for (i =  3*Integer.BYTES + 3*Short.BYTES; i < 3*Integer.BYTES + 3*Short.BYTES + Hashsize; i++) {
+            Id_array[i -  3*Integer.BYTES - 3*Short.BYTES] = bytes_array[i];
+        }
+        for (i = 3*Integer.BYTES + 3*Short.BYTES + Hashsize; i < 3*Integer.BYTES + 3*Short.BYTES + Hashsize + OriginPeerSize; i++){
+            Origin_array[i - 3*Integer.BYTES - 3*Short.BYTES - Hashsize] = bytes_array[i];
+        }
+        for (i =  3*Integer.BYTES + 3*Short.BYTES + Hashsize + OriginPeerSize; i <  3*Integer.BYTES + 3*Short.BYTES + Hashsize + OriginPeerSize + key_size; i++){
+            Key_array[i - (3*Integer.BYTES + 3*Short.BYTES + Hashsize + OriginPeerSize)] = bytes_array[i];
+        }
+
+        Hash = new String(Id_array);
+        Origin_Peer = new String(Origin_array);
+        ByteArrayInputStream bis = new ByteArrayInputStream(Key_array);
+        //System.out.println(bis);
+        ObjectInput in = new ObjectInputStream(bis);
+        SecretKey key = (SecretKey) in.readObject();
+
+        return new Quintet<>(Partition,iter,Hash,Origin_Peer,key);
+    }
+
     public Triplet<String,Integer,Integer> Get_JoinRequest(ByteBuffer rbuff, byte[] bytes_array){
         byte[] Id_array = new byte[bytes_array.length  - 2*Short.BYTES - 2*Integer.BYTES];
         int Partition = rbuff.getInt();
@@ -792,6 +1175,8 @@ public class MyIPFSClass {
         }
         return new org.javatuples.Triplet<>(new String(Id_array),Partition,iteration);
     }
+
+
     /*
     // Here we wait for a publish from a specific topic to get gradients
     public double[] recv(IPFS ipfs,String topic) throws Exception {

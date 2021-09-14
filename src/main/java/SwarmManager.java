@@ -6,6 +6,7 @@ import org.javatuples.Quintet;
 import org.javatuples.Triplet;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -216,7 +217,7 @@ public class SwarmManager extends Thread{
     // In case check_iteration is true that means that the peer has send the data although
     // they never arrived because i was probably sleeping.
     public static boolean Check_iteration(String Peer,int pos) throws  Exception{
-        double peer_iteration = AuxilaryIpfs.Get_Message(Peer,"Auxiliaries").get(pos);
+        double peer_iteration = ((List<Double>)AuxilaryIpfs.Get_Message(Peer,"Auxiliaries")).get(pos);
         System.out.println( AuxilaryIpfs.Get_Message(Peer,"Auxiliaries"));
         if((int)peer_iteration == PeerData.middleware_iteration){
             return true;
@@ -236,7 +237,7 @@ public class SwarmManager extends Thread{
             partition = PeerData.Client_Wait_Ack.get(i).getValue1();
 
             if(Check_iteration(Peer,0)){
-                Quintet<String,Integer,Integer,Boolean,List<Double>> tuple = new Quintet<>(Peer,partition,PeerData.middleware_iteration,true,AuxilaryIpfs.Get_Message(Peer,partition+"_Gradients"));
+                Quintet<String,Integer,Integer,Boolean,List<Double>> tuple = new Quintet<>(Peer,partition,PeerData.middleware_iteration,true,(List<Double>) AuxilaryIpfs.Get_Message(Peer,partition+"_Gradients"));
                 PeerData.queue.add(tuple);
 
             }
@@ -264,7 +265,7 @@ public class SwarmManager extends Thread{
             partition = PeerData.Replica_Wait_Ack.get(i).getValue1();
 
             if(Check_iteration(Peer,1)){
-                Quintet<String,Integer,Integer,Boolean,List<Double>> tuple = new Quintet<>(Peer,partition,PeerData.middleware_iteration,false,AuxilaryIpfs.Get_Message(Peer,partition+"_Replicas"));
+                Quintet<String,Integer,Integer,Boolean,List<Double>> tuple = new Quintet<>(Peer,partition,PeerData.middleware_iteration,false,(List<Double>) AuxilaryIpfs.Get_Message(Peer,partition+"_Replicas"));
                 PeerData.queue.add(tuple);
                 Participants = AuxilaryIpfs.Get_Participant_Number(Peer,"Participants");
                 update_participants(partition,Participants.get(partition));
@@ -283,7 +284,7 @@ public class SwarmManager extends Thread{
             partition = PeerData.Wait_Ack.get(i).getValue1();
 
             if(Check_iteration(Peer,2) || PeerData.Wait_Ack.get(i).getValue2() == -1){
-                List<Double> Updated_Partition = AuxilaryIpfs.Get_Message(Peer,partition+"_Updates");
+                List<Double> Updated_Partition = (List<Double>) AuxilaryIpfs.Get_Message(Peer,partition+"_Updates");
                 for(int j = 0; j < PeerData.Weight_Address.get(partition).size(); j++){
                     PeerData.Weight_Address.get(partition).set(j,Updated_Partition.get(j));
                 }
@@ -320,18 +321,70 @@ public class SwarmManager extends Thread{
 
     }
 
+    public int IPLS_Peer_Scheduler() throws Exception {
+        int sleep_time = 1;
+        PeerData.mtx.acquire();
+        if(PeerData.Schedule_Hash == null || AuxilaryIpfs.find_iter() == -1){
+            sleep_time = 1;
+        }
+
+        if(AuxilaryIpfs.get_curr_time() < AuxilaryIpfs.training_elapse_time(PeerData.middleware_iteration)){
+            sleep_time = AuxilaryIpfs.aggregation_elapse_time(PeerData.middleware_iteration) - AuxilaryIpfs.get_curr_time();
+        }
+        else if(AuxilaryIpfs.get_curr_time() < AuxilaryIpfs.aggregation_elapse_time(PeerData.middleware_iteration)){
+            sleep_time = AuxilaryIpfs.aggregation_elapse_time(PeerData.middleware_iteration) - AuxilaryIpfs.get_curr_time();
+        }
+        else if(AuxilaryIpfs.get_curr_time() < AuxilaryIpfs.synch_elapse_time(PeerData.middleware_iteration)){
+            AuxilaryIpfs.clear_client_wait_ack_list();
+            sleep_time = AuxilaryIpfs.synch_elapse_time(PeerData.middleware_iteration) - AuxilaryIpfs.get_curr_time();
+        }
+        else if(AuxilaryIpfs.get_curr_time() > AuxilaryIpfs.synch_elapse_time(PeerData.middleware_iteration)){
+            //CLEAR REPLICAS WAITING TABLE
+            AuxilaryIpfs.clear_replica_wait_ack_list();
+            if(AuxilaryIpfs.training_elapse_time(PeerData.middleware_iteration + 1) != -1 &&
+                    AuxilaryIpfs.get_curr_time() >= AuxilaryIpfs.training_elapse_time(PeerData.middleware_iteration+1) - AuxilaryIpfs.get_training_time()/6){
+                AuxilaryIpfs.clear_wait_ack_list();
+                sleep_time = AuxilaryIpfs.training_elapse_time(PeerData.middleware_iteration+1) - AuxilaryIpfs.get_curr_time();
+            }
+            /*
+            else if(AuxilaryIpfs.training_elapse_time(PeerData.middleware_iteration + 1) != -1 &&
+                    AuxilaryIpfs.get_curr_time() >= AuxilaryIpfs.training_elapse_time(PeerData.middleware_iteration+1) &&
+                    AuxilaryIpfs.find_iter() != -1){
+                System.out.println("Peer Out of sync!");
+                PeerData.middleware_iteration = AuxilaryIpfs.find_iter();
+            }
+            */
+            else{
+                sleep_time = 2;
+            }
+        }
+        //PeerData.middleware_iteration = find_iter();
+        PeerData.mtx.release();
+
+        return sleep_time;
+    }
+
     public void run(){
         String Peer;
         int iteration;
+        int sleep_time;
         while(true){
             try {
-                iteration = PeerData.middleware_iteration;
-                Thread.sleep(20000);
-                if (iteration == PeerData.middleware_iteration && PeerData.IPNS_Enable) {
-                    System.out.println("Checking Indirect requests");
-                    CHECK_INDIRECT_REQUESTS();
-                }
 
+                if(PeerData.Relaxed_SGD){
+                    sleep_time = IPLS_Peer_Scheduler();
+                    if(sleep_time>0){
+                        Thread.sleep(sleep_time*1000);
+                    }
+                }
+                else {
+                    iteration = PeerData.middleware_iteration;
+                    Thread.sleep(20000);
+                    if (iteration == PeerData.middleware_iteration && PeerData.IPNS_Enable) {
+                        System.out.println("Checking Indirect requests");
+                        CHECK_INDIRECT_REQUESTS();
+                    }
+                }
 
             }
             catch (Exception e) {
