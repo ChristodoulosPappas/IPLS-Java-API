@@ -9,6 +9,7 @@ import org.json.JSONObject;
 import org.junit.internal.ExactComparisonCriteria;
 import org.web3j.abi.datatypes.Bool;
 
+import javax.crypto.SecretKey;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
@@ -19,7 +20,10 @@ import java.util.concurrent.LinkedBlockingQueue;
 class GGP_Receiver extends Thread{
     MyIPFSClass ipfsClass;
     IPFS ipfs;
+    IPLS_Comm commit;
 
+    // Increment the number of participants in order to average correctly
+    // the replicas
     void update_participants(int partition,int num_of_participants){
         if(!PeerData.Participants.containsKey(partition)){
             PeerData.Participants.put(partition,num_of_participants);
@@ -29,6 +33,10 @@ class GGP_Receiver extends Thread{
         }
     }
 
+
+    // this method scales the gradient vector to the number of participants so that the averaging
+    // of all replicas could lead to a correct result. For example let R1 and R2 two replica vectors
+    // aggregated from 4 and 2 different participants. Then the updated vector will be (4*R1 + 2*R2)/6
     public List<Double> get_replica_update(List<Double> replica, int participants){
         List<Double> updated_replica = new ArrayList<>();
         for(int i = 0; i < replica.size(); i++){
@@ -51,6 +59,9 @@ class GGP_Receiver extends Thread{
     }
 
     public void process(String RecvData) throws Exception{
+        if(PeerData.isBootsraper){
+            return;
+        }
         byte[] bytes_array;
         ByteBuffer rbuff;
         int partition;
@@ -63,22 +74,81 @@ class GGP_Receiver extends Thread{
         bytes_array = get_bytes(obj);
         rbuff = ByteBuffer.wrap(bytes_array);
         pid = rbuff.getShort();
-        if(pid != 8){
+        if(pid == 3 && !PeerData.isBootsraper){
+            // tuple : Peer ID, iteration, number of peers, gradients
             Quartet<String,Integer,Integer,List<Double>> tuple = ipfsClass.Get_Replica_Model(rbuff,bytes_array);
-            if(PeerData.isBootsraper) {
-                tuple = null;
-                return;
-            }
-            if(!tuple.getValue0().equals(PeerData._ID)){
-                Quintet<String,Integer,Integer,Boolean,List<Double>> newtuple = new Quintet<>(tuple.getValue0(),partition,tuple.getValue1(),false,get_replica_update(tuple.getValue3(),tuple.getValue2()));
+
+            // check if message comes from other replica aggregator and also it arrives in time
+            if(!tuple.getValue0().equals(PeerData._ID) && ipfsClass.synch_elapse_time(tuple.getValue1()) != -1 && ipfsClass.synch_elapse_time(tuple.getValue1()) > ipfsClass.get_curr_time()){
+                // newtuple : Replica_ID,partition,iteration,false,gradients
+                Quintet<String,Integer,Integer,Boolean,List<Double>> newtuple = new Quintet<>(tuple.getValue0(),partition,tuple.getValue1(),false,tuple.getValue3());
                 update_participants(partition,tuple.getValue2());
+                // Because replica sent his aggregated partition, peer doesn't need the gradients he downloaded
+                // so he can remove them
+                PeerData.com_mtx.acquire();
+                if(PeerData.Other_Replica_Gradients.containsKey(new Pair<>(partition,newtuple.getValue0()))){
+                    PeerData.Other_Replica_Gradients.remove(new Pair<>(partition,newtuple.getValue0()));
+                    PeerData.Other_Replica_Gradients_Received.remove(new Pair<>(partition,newtuple.getValue0()));
+                }
+                PeerData.Received_Replicas.add(new Pair<>(partition,tuple.getValue0()));
+                PeerData.com_mtx.release();
+
                 PeerData.queue.add(newtuple);
             }
             else{
                 tuple = null;
             }
         }
+        else if(pid == 23 && !PeerData.isBootsraper){
+            //Receive commit <Partition,Iteration,Hash, origin_peer>
+            Quintet<Integer,Integer,String,String,String> Reply = ipfsClass.Get_Gradient_Commitment(rbuff,bytes_array);
+            //process commitment
+            commit.process_commitment(Reply.getValue0(),Reply.getValue3(),Reply.getValue2(),Reply.getValue1(),Reply.getValue4());
+        }
+        else if(pid == 33 && !PeerData.isBootsraper){
+            // Receive Partition,iteration Hash, origin_peer and secret key
+
+            Quintet<Integer,Integer,String,String, SecretKey> Reply = ipfsClass.Get_SecretKey(rbuff,bytes_array);
+            int Partition = Reply.getValue0();
+            String Hash = Reply.getValue2();
+            //In case that the file is already downloaded, then just decrypt it and add it to the
+            // updater queue. Otherwise add the key to Hash_keys in order for the file to be decrypted
+            // whenever it is downloaded
+            PeerData.com_mtx.acquire();
+            if(PeerData.Downloaded_Hashes.containsKey(Reply.getValue2())){
+                PeerData.com_mtx.release();
+
+                // If the hash is destined for me perform as usual
+                if(PeerData.Downloaded_Hashes.get(Hash).equals(PeerData._ID)){
+                    PeerData.queue.add(new Quintet<>(Reply.getValue3(),Reply.getValue0(),Reply.getValue1(),true,(List<Double>) ipfsClass.decrypt(ipfsClass.Get_bytes(Reply.getValue2()),Reply.getValue4())));
+                    PeerData.Downloaded_Hashes.remove(Reply.getValue2());
+                }
+                // In case the key is destined for other aggregator responsible for the same partition
+                // aggregate it
+                else{
+                    String Aggregator = PeerData.Downloaded_Hashes.get(Hash);
+                    if(PeerData.Other_Replica_Gradients.containsKey(new Pair<>(Partition,PeerData.Downloaded_Hashes.get(Hash)))){
+                        List<Double> gradients = (List<Double>) ipfsClass.decrypt(ipfsClass.Get_bytes(Hash),PeerData.Hash_Keys.get(Hash));
+                        for(int j = 0; j < gradients.size(); j++){
+                            PeerData.Other_Replica_Gradients.get(new Pair<>(Partition,Aggregator)).set(j,PeerData.Other_Replica_Gradients.get(new Pair<>(Partition,Aggregator)).get(j) + gradients.get(j));
+                        }
+                        gradients = null;
+                        PeerData.Other_Replica_Gradients_Received.put(new Pair<>(Partition,Aggregator),PeerData.Other_Replica_Gradients_Received.get(new Pair<>(Partition,Aggregator))+1);
+                    }
+                    else{
+                        PeerData.Other_Replica_Gradients.put(new Pair<>(Partition,Aggregator),(List<Double>) ipfsClass.decrypt(ipfsClass.Get_bytes(Hash),PeerData.Hash_Keys.get(Hash)));
+                        PeerData.Other_Replica_Gradients_Received.put(new Pair<>(Partition,Aggregator),1);
+                    }
+                }
+            }
+            else{
+                PeerData.Hash_Keys.put(Reply.getValue2(),Reply.getValue4());
+                PeerData.com_mtx.release();
+            }
+
+        }
         else{
+
             PeerData.mtx.acquire();
             short is_reply = rbuff.getShort();
             org.javatuples.Triplet<String,Integer,Integer> ReplyPair = ipfsClass.Get_JoinRequest(rbuff,bytes_array);
@@ -95,13 +165,12 @@ class GGP_Receiver extends Thread{
             PeerData.mtx.release();
 
         }
-
-
     }
 
     public void run()  {
         String RecvData;
         ipfs = new IPFS(PeerData.Path);
+        commit = new IPLS_Comm(PeerData.Path);
         while(true){
             try {
                 RecvData = PeerData.GGP_queue.take();

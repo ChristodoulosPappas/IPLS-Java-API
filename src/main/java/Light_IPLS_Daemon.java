@@ -53,7 +53,7 @@ public class Light_IPLS_Daemon extends Thread{
         }
     }
 
-    public void run() {
+    public void run(){
         MyIPFSClass Auxiliary = new MyIPFSClass();
 
         try {
@@ -104,7 +104,8 @@ public class Light_IPLS_Daemon extends Thread{
                 }
             }
             catch (Exception e){
-                System.out.println("Exception on IPLS daemon" + e);
+                e.printStackTrace();
+                System.exit(-1);
             }
         }
     }

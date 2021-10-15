@@ -35,11 +35,11 @@ public class Updater extends Thread{
         double weight = PeerData.previous_iter_active_workers.get(Partiton);
         //Aggregate gradients from pub/sub
         if(!from_clients) {
-            System.out.println("From pubsub");
             if(PeerData.isSynchronous){
                 PeerData.mtx.acquire();
 
-                if((PeerData.Replica_holders.get(Partiton).contains(Origin) && iteration == PeerData.middleware_iteration) || (PeerData.New_Replicas.get(Partiton).contains(Origin) && iteration == PeerData.middleware_iteration)){
+                if(iteration == PeerData.middleware_iteration){
+                    System.out.println("From pubsub");
                     for( i = 0; i < PeerData.Aggregated_Gradients.get(Partiton).size() && Gradient != null; i++){
                         PeerData.Replicas_Gradients.get(Partiton).set(i, PeerData.Replicas_Gradients.get(Partiton).get(i) + Gradient.get(i));
                     }

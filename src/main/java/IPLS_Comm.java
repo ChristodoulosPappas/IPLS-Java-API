@@ -1,6 +1,8 @@
+import com.sun.xml.internal.ws.wsdl.writer.document.Part;
 import io.ipfs.api.IPFS;
 import org.javatuples.Pair;
 import org.javatuples.Quartet;
+import org.javatuples.Quintet;
 import org.javatuples.Triplet;
 
 import javax.crypto.SecretKey;
@@ -38,24 +40,23 @@ public class IPLS_Comm {
     }
 
     public void publish_commitments(short pid) throws Exception{
-        System.out.println(commitments);
         for(int i = 0; i < commitments.size(); i++){
-            ipfs.pubsub.pub(commitments.get(i).getValue0(),ipfsClass.Marshall_Packet(commitments.get(i).getValue1(),PeerData._ID,commitments.get(i).getValue2(),commitments.get(i).getValue3(),pid));
+            ipfs.pubsub.pub(String.valueOf(commitments.get(i).getValue2()),ipfsClass.Marshall_Packet(commitments.get(i).getValue1(),PeerData._ID,commitments.get(i).getValue0(),commitments.get(i).getValue2(),commitments.get(i).getValue3(),pid));
         }
         commitments = new ArrayList<>();
     }
 
     public void send_key(String Peer, String Hash ,int Partition, SecretKey key) throws Exception{
-        ipfs.pubsub.pub(Peer,ipfsClass.Marshall_Packet(PeerData._ID,Hash,Partition,PeerData.middleware_iteration,key,(short)33));
+        ipfs.pubsub.pub(String.valueOf(Partition),ipfsClass.Marshall_Packet(PeerData._ID,Hash,Partition,PeerData.middleware_iteration,key,(short)33));
     }
 
-    public void process_commitment(int Partition, String Origin, String Hash,int Iteration) throws Exception{
+    public void process_commitment(int Partition, String Origin, String Hash,int Iteration, String Aggregator) throws Exception{
         // This is somehow naive and is going to change in the future
         if(ipfsClass.find_iter() == -1 || (ipfsClass.find_iter() != -1 && ipfsClass.training_elapse_time(ipfsClass.find_iter()) > ipfsClass.get_curr_time() )){
             if((ipfsClass.find_iter() == -1 && Iteration > PeerData.middleware_iteration ) || ( ipfsClass.find_iter() != -1 && Iteration == ipfsClass.find_iter())){
                 //System.out.println("Got hash : " + Hash + " ,from : " + Origin + " , " + Iteration + " , "  + PeerData.middleware_iteration);
                 //PeerData.Committed_Hashes.get(Partition).add(new Triplet<>(Hash,Origin,Iteration));
-                PeerData.aggregation_download_scheduler.add_file(new Quartet<>(Hash,Origin,Iteration,Partition));
+                PeerData.aggregation_download_scheduler.add_file(new Quintet(Hash,Origin,Iteration,Partition,Aggregator));
             }
         }
         else{

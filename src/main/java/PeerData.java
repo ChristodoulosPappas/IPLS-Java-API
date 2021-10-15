@@ -5,6 +5,7 @@ import org.javatuples.Pair;
 import org.javatuples.Quartet;
 import org.javatuples.Quintet;
 import org.javatuples.Triplet;
+import org.nd4j.linalg.api.ops.custom.Tri;
 import org.web3j.abi.datatypes.Int;
 
 import javax.crypto.SecretKey;
@@ -78,16 +79,22 @@ public class PeerData {
     //This data structure is used so that the peers can get the data of the
     // partitions that they become responsible for
     public static Map<Integer,String> Hash_Partitions = new HashMap<>();
-    public static List<String> Downloaded_Hashes = new ArrayList<>();
+    public static Map<String,String> Downloaded_Hashes = new HashMap<>();
     public static Map<String, SecretKey> Hash_Keys = new HashMap<>();
     public static Map<Integer,List<Triplet<String,String,Integer>>> Committed_Hashes = new HashMap<>();
     public static Map<Integer,Pair<String,SecretKey>> key_dir = new HashMap<>();
+
 
 
     public static Map<Integer,List<Double>> GradientPartitions = new HashMap<>();
     //public static List<Double> Gradients = new ArrayList<Double>();
     //The gradients received from replica peers
     public static Map<Integer,List<Double>> Replicas_Gradients = new HashMap<>();
+    // This data structure is used in order to store the extra gradients an aggregator downloaded
+    // in the aggregation phase
+    public static Map<Pair<Integer,String>,List<Double>> Other_Replica_Gradients = new HashMap<>();
+    public static Map<Pair<Integer,String>,Integer> Other_Replica_Gradients_Received = new HashMap<>();
+    public static List<Pair<Integer,String>> Received_Replicas = new ArrayList<>();
     // The gradients received from my clients (peers that are not responsible for my partitions so i am a dealer of them)
     public static Map<Integer,List<Double>> Aggregated_Gradients = new HashMap<>();
     // There is a very very small and almost impossible for realsitic systems chance that a client has finished the next iteration while i am in the previous (just before end the updateGradientMethod)

@@ -379,7 +379,7 @@ public class MyIPFSClass {
 
     // Time until training must be completed
     public static int training_elapse_time(int iteration){
-        if(PeerData.current_schedule.size() == 0 || PeerData.current_schedule.get(PeerData.current_schedule.size()-1) < iteration){
+        if(PeerData.current_schedule.size() == 0 || PeerData.current_schedule.get(PeerData.current_schedule.size()-1) < iteration || iteration == -1){
             return -1;
         }
         int offset = iteration - PeerData.current_schedule.get(3+1);
@@ -775,6 +775,41 @@ public class MyIPFSClass {
 
         return Base64.getUrlEncoder().encodeToString(finalbarr);
     }
+
+    public static String Marshall_Packet(String Hash, String OriginPeer, String Aggregator,int Partition,int iteration,short pid) {
+        int i;
+        byte[] finalbarr;
+
+        ByteBuffer buff = ByteBuffer.allocate(2*Integer.BYTES + 4*Short.BYTES);
+        buff.putShort(0,pid);
+        buff.putShort(Short.BYTES,(short) Hash.length());
+        buff.putShort(2*Short.BYTES,(short) OriginPeer.length());
+        buff.putShort(3*Short.BYTES, (short) Aggregator.length());
+        buff.putInt(4*Short.BYTES,Partition);
+        buff.putInt(4*Short.BYTES + Integer.BYTES,iteration);
+
+        byte[] barr = new byte[buff.remaining()];
+        byte[] HashBytes = Hash.getBytes();
+        byte[] OriginIdBytes = OriginPeer.getBytes();
+        byte[] AggregatorBytes = Aggregator.getBytes();
+        buff.get(barr);
+        finalbarr = new byte[barr.length + Hash.length() + OriginPeer.length() + Aggregator.length()];
+        for (i = 0; i < barr.length; i++) {
+            finalbarr[i] = barr[i];
+        }
+        for (i = barr.length; i < barr.length + Hash.length(); i++) {
+            finalbarr[i] = HashBytes[i - barr.length];
+        }
+        for (i = barr.length + Hash.length(); i < barr.length + Hash.length() + OriginPeer.length(); i++){
+            finalbarr[i] = OriginIdBytes[i - barr.length - Hash.length()];
+        }
+        for (i = barr.length + Hash.length() + OriginPeer.length(); i < finalbarr.length; i++){
+            finalbarr[i] = AggregatorBytes[i - (barr.length + Hash.length() + OriginPeer.length())];
+        }
+
+        return Base64.getUrlEncoder().encodeToString(finalbarr);
+    }
+
     public static String Marshall_Packet(String OriginPeer, String Hash, int Partition, int iteration, SecretKey key, short pid) throws Exception{
         byte[] key_bytes;
         byte[] finalbarr;
@@ -1130,6 +1165,38 @@ public class MyIPFSClass {
         Hash = new String(Id_array);
         Origin_Peer = new String(Origin_array);
         return new Quartet<>(Partition,iter,Hash,Origin_Peer);
+    }
+
+    public Quintet<Integer,Integer,String,String,String> Get_Gradient_Commitment(ByteBuffer rbuff, byte[] bytes_array){
+        int Partition,iter,i;
+        short Hashsize,OriginPeerSize,AggregatorSize;
+        String Hash,Origin_Peer,Aggregator;
+
+        Hashsize = rbuff.getShort();
+        OriginPeerSize = rbuff.getShort();
+        AggregatorSize = rbuff.getShort();
+        Partition = rbuff.getInt();
+        iter = rbuff.getInt();
+
+        byte[] Id_array = new byte[Hashsize];
+        byte[] Origin_array = new byte[OriginPeerSize];
+        byte[] Aggregator_array = new byte[AggregatorSize];
+
+        for (i =  2*Integer.BYTES + 4*Short.BYTES; i < 2*Integer.BYTES + 4*Short.BYTES + Hashsize; i++) {
+            Id_array[i -  2*Integer.BYTES - 4*Short.BYTES] = bytes_array[i];
+        }
+        for (i = 2*Integer.BYTES + 4*Short.BYTES + Hashsize; i < bytes_array.length - AggregatorSize; i++){
+            Origin_array[i - 2*Integer.BYTES - 4*Short.BYTES - Hashsize] = bytes_array[i];
+        }
+        for(i = bytes_array.length - AggregatorSize; i < bytes_array.length; i++){
+            Aggregator_array[i - 2*Integer.BYTES - 4*Short.BYTES - Hashsize - OriginPeerSize] = bytes_array[i];
+        }
+
+        Hash = new String(Id_array);
+        Origin_Peer = new String(Origin_array);
+        Aggregator = new String(Aggregator_array);
+        return new Quintet<>(Partition,iter,Hash,Origin_Peer,Aggregator);
+
     }
 
     public Quintet<Integer,Integer,String,String,SecretKey> Get_SecretKey(ByteBuffer rbuff, byte[] bytes_array) throws Exception{

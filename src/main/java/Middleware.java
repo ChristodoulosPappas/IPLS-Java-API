@@ -180,7 +180,7 @@ public class Middleware{
             Get_Task(2,clientSocket);
             if(task == 1){
                 System.out.println("CREATE A NEW IPLS INSTANCE : " + Path + " , " + FileName + " , " + Bootstrappers + " , " + is_bootstraper + " , " + model_size);
-                ipls = new IPLS(Path,"MNIST_Partitioned_Dataset/ETHModel",Bootstrappers,is_bootstraper, model_size);
+                ipls = new IPLS(Path,FileName,Bootstrappers,is_bootstraper, model_size);
                 //IF I AM BOOTSTRAPER THEN DO NOT CONTINUE
                 if(is_bootstraper){
                     ipls.init();
