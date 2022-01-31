@@ -69,13 +69,25 @@ public class Bootstraper_Services extends Thread{
 
 
     public  void run(){
+        int round = 0;
+        IPLS_DS DS = new IPLS_DS(PeerData.Path,false);
+        DS.start();
+        DS.set_round(round);
         while(true){
             try {
-                publish_schedule((int) Instant.now().getEpochSecond() + begin_time,  training_time,Aggregation_time,replicas_sync_time,10);
+                publish_schedule((int) Instant.now().getEpochSecond() + begin_time,  training_time,Aggregation_time,replicas_sync_time,1);
                 System.out.println("Published new schedule : " + PeerData.Schedule_Hash);
-                Thread.sleep((begin_time + 2*(training_time+Aggregation_time+replicas_sync_time))*1000);
-                while(Instant.now().getEpochSecond()  < PeerData.current_schedule.get(PeerData.current_schedule.size()-2)){Thread.sleep(1000);}
-                System.out.println(Instant.now().getEpochSecond() + ", " + PeerData.current_schedule.get(PeerData.current_schedule.size()-2) );
+                Thread.sleep((ipfsClass.training_elapse_time(round) - ipfsClass.get_curr_time())*1000);
+                DS.clear_updates_table();
+                //Thread.sleep((begin_time + 2*(training_time+Aggregation_time+replicas_sync_time))*1000);
+                while(Instant.now().getEpochSecond()  < PeerData.current_schedule.get(PeerData.current_schedule.size()-2) &&
+                        (PeerData.premature_termination == false || (PeerData.premature_termination == true && PeerData.flush == false))){Thread.sleep(300);}
+                round++;
+                DS.set_round(round);
+                DS.flush_ds(true,true);
+                if(PeerData.premature_termination){PeerData.flush = false;}
+
+                //System.out.println(Instant.now().getEpochSecond() + ", " + PeerData.current_schedule.get(PeerData.current_schedule.size()-2) );
             } catch (Exception e) {
                 e.printStackTrace();
             }

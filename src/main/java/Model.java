@@ -46,8 +46,8 @@ import static org.deeplearning4j.datasets.iterator.impl.EmnistDataSetIterator.Se
 
 
 class Console extends Thread{
-	
-	
+
+
     public void run(){
         System.out.println("Press Any Key to continue... ");
         while(true){
@@ -59,33 +59,33 @@ class Console extends Thread{
                 System.out.print("Ok1");
 
                 if(s.equals("exit")) {
-                	System.out.println("Exiting");
-                	PeerData.STATE = 2;
-                	Model.ipls.terminate();
-					System.exit(1);
+                    System.out.println("Exiting");
+                    PeerData.STATE = 2;
+                    Model.ipls.terminate();
+                    System.exit(1);
                 }
             }
             catch(IOException e)
             {
                 e.printStackTrace();
-                
+
             }
             catch (NullPointerException e){
                 System.out.println("null");
                 PeerData.STATE = 2;
                 try {
-					Model.ipls.terminate();
-				} catch (Exception e1) {
-					// TODO Auto-generated catch block
-					e1.printStackTrace();
-				}
-				
-            	//System.exit(1);
+                    Model.ipls.terminate();
+                } catch (Exception e1) {
+                    // TODO Auto-generated catch block
+                    e1.printStackTrace();
+                }
+
+                //System.exit(1);
                 //return;
             } catch (Exception e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
+                // TODO Auto-generated catch block
+                e.printStackTrace();
+            }
         }
     }
 
@@ -116,7 +116,7 @@ class Console extends Thread{
         * A boolean value indicating if you the system runs Synchronous Gradient Descent or Asynchronous Gradient Descent
 */
 public class Model {
-	public static IPLS ipls;
+    public static IPLS ipls;
     public static String topic;
     public  static MultiLayerNetwork model;
     public static List<String> Bootstrapers = new ArrayList<>();
@@ -250,23 +250,23 @@ public class Model {
         parse_arguments(args);
         try {
 
-
+            /*
             FileInputStream fis = new FileInputStream("MNIST_Partitioned_Dataset/" + topic + "TrainDataset");
             ObjectInput fin = new ObjectInputStream(fis);
             mnistTrain = (DataSetIterator) fin.readObject();
             System.out.println(mnistTrain);
             System.out.println("OKKKK");
-            
+
             fis = new FileInputStream("MNIST_Partitioned_Dataset/"+"MnistTest");
             fin = new ObjectInputStream(fis);
             mnistTest = (DataSetIterator) fin.readObject();
-           
-            
-            
+
+            */
+
         }
         catch (Exception e){
-        	System.out.print(e);
-        	
+            System.out.print(e);
+
             System.out.println("Could not find iterator ");
             System.exit(-1);
         }
@@ -344,10 +344,10 @@ public class Model {
         List<Double> acc = new ArrayList<>();
 
         // CREATE IPLS OBJECT
-        ipls = new IPLS(Path,"MNIST_Partitioned_Dataset/ETHModel",Bootstrapers,isBootstraper,model.params().length());
+        ipls = new IPLS(Path,"init_model_1",Bootstrapers,isBootstraper,model.params().length());
 
         // START INITIALIZATION PHASE
-
+        System.out.println("Creating IPLS instance");
         //IF I AM BOOTSTRAPER THEN DO NOT CONTINUE
         if(isBootstraper){
             ipls.init();
@@ -355,7 +355,7 @@ public class Model {
 
             }
         }
-
+        System.out.println("Initializing IPLS daemon");
         Light_IPLS_Daemon ipls_daemon = new Light_IPLS_Daemon(ipls);
         ipls_daemon.start();
 
@@ -386,7 +386,7 @@ public class Model {
             /* ===================================== */
 
             for(int j = 0; j < model.params().length(); j++){
-               Dumm.put(0,j,arr.get(j));
+                Dumm.put(0,j,arr.get(j));
             }
             double parameters_norm = 0;
             for(int j = 0; j < model.params().length(); j++){
@@ -407,7 +407,7 @@ public class Model {
             // This method is going to train the model in only one processor so that you can run
             // many nodes when you are using only one pc and you want to experiment with IPLS.
             System.out.println("START TRAINING");
-            remote_fit();
+            //remote_fit();
 
             // In this function you get the W[i] - W[i-1] (difference of the locally updated model and the global model received from ipls.GetPartitions();)
             gradient = GetDiff(model.params(),Dumm);
@@ -438,25 +438,25 @@ public class Model {
         Evaluation eval = model.evaluate(mnistTest);
         System.out.println(eval.stats());
         System.out.println("****************Example finished********************");
-        
+
         File f = new File("DataRecv"+topic);
         f.createNewFile();
-        
+
         fos = new FileOutputStream("DataRecv"+topic);
         oos = new ObjectOutputStream(fos);
         oos.writeObject(PeerData.RecvList);
         oos.close();
         fos.close();
-        
+
         f = new File("ChartData" + topic);
         f.createNewFile();
-        
+
         fos = new FileOutputStream("ChartData" + topic);
         oos = new ObjectOutputStream(fos);
         oos.writeObject(acc);
         oos.close();
         fos.close();
-     
+
 
 
     }

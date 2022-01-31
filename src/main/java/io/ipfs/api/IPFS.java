@@ -76,7 +76,7 @@ public class IPFS {
             throw new RuntimeException(e);
         }
     }
-    
+
     /**
      * Configure a HTTP client timeout
      * @param timeout (default 0: infinite timeout)
@@ -90,6 +90,23 @@ public class IPFS {
 
     public List<MerkleNode> add(NamedStreamable file) throws IOException {
         return add(file, false);
+    }
+
+    public List<MerkleNode> add(NamedStreamable name, int port) throws IOException {
+        List<NamedStreamable> files =  Collections.singletonList(name);
+        System.out.println(host);
+        System.out.println(version);
+        Multipart m = new Multipart(protocol + "://" + host + ":" + port + version + "add?stream-channels=true&w="+false + "&n="+false, "UTF-8");
+        for (NamedStreamable file: files) {
+            if (file.isDirectory()) {
+                m.addSubtree(Paths.get(""), file);
+            } else
+                m.addFilePart("file", Paths.get(""), file);
+        };
+        String res = m.finish();
+        return JSONParser.parseStream(res).stream()
+                .map(x -> MerkleNode.fromJSON((Map<String, Object>) x))
+                .collect(Collectors.toList());
     }
 
     public List<MerkleNode> add(NamedStreamable file, boolean wrap) throws IOException {
@@ -140,7 +157,7 @@ public class IPFS {
         return retrieveStream("cat?arg=" + hash);
     }
 
-    public List<Multihash> refs(Multihash hash, boolean recursive) throws IOException {
+    public List<Multihash> refs(String hash, boolean recursive) throws IOException {
         String jsonStream = new String(retrieve("refs?arg=" + hash + "&r=" + recursive));
         return JSONParser.parseStream(jsonStream).stream()
                 .map(m -> (String) (((Map) m).get("Ref")))
@@ -678,18 +695,19 @@ public class IPFS {
         return Stream.generate(() -> {
             try {
                 while(true) {
+
                     String s = new String(results.take().get());
                     if(s == null) {
-                    	System.out.println("NULL !!!");
+                        System.out.println("NULL !!!");
                     }
                     queue.add(s);
 
-                    if (TerminateConditions.terminate.get(topic) == true) {
-                    	System.out.print("Last msg !!!!!!!");
-                    	in.close();
-                    	executor.shutdownNow();
+                    if (TerminateConditions.terminate.get(topic) != null && TerminateConditions.terminate.get(topic) == true) {
+                        System.out.print("Last msg !!!!!!!");
+                        in.close();
+                        executor.shutdownNow();
                         break;
-                        
+
                     }
 
                     //System.out.println(s);
@@ -720,9 +738,21 @@ public class IPFS {
 
     private static byte[] get(URL target, int timeout) throws IOException {
 
-        HttpURLConnection conn = configureConnection(target, "POST", timeout);
+        HttpURLConnection conn = (HttpURLConnection) target.openConnection();
+        conn.setDoOutput(true);
+        conn.setRequestMethod("POST");
+        conn.setRequestProperty("Content-Type", "application/json");
+        conn.setReadTimeout(timeout);
+        conn.setChunkedStreamingMode(1024);
+        conn.setUseCaches(false);
+        conn.setDefaultUseCaches(false);
 
         try {
+            OutputStream out = conn.getOutputStream();
+            out.write(new byte[0]);
+            out.flush();
+            out.close();
+
             InputStream in = conn.getInputStream();
 
             ByteArrayOutputStream resp = new ByteArrayOutputStream();
@@ -732,6 +762,8 @@ public class IPFS {
             while ((r = in.read(buf)) >= 0)
                 resp.write(buf, 0, r);
             in.close();
+
+            conn.disconnect();
             return resp.toByteArray();
         } catch (ConnectException e) {
             throw new RuntimeException("Couldn't connect to IPFS daemon at "+target+"\n Is IPFS running?");
@@ -824,7 +856,7 @@ public class IPFS {
             while ((r=in.read(buf)) >= 0)
                 resp.write(buf, 0, r);
             return resp.toByteArray();
-            
+
         } catch(IOException ex) {
             throw new RuntimeException("Error reading InputStrean", ex);
         }
@@ -833,7 +865,7 @@ public class IPFS {
     private static boolean detectSSL(MultiAddress multiaddress) {
         return multiaddress.toString().contains("/https");
     }
-    
+
     private static HttpURLConnection configureConnection(URL target, String method, int timeout) throws IOException {
         HttpURLConnection conn = (HttpURLConnection) target.openConnection();
         conn.setRequestMethod(method);

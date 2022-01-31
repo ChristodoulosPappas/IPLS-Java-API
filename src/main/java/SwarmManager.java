@@ -1,16 +1,10 @@
 import io.ipfs.api.IPFS;
 import io.ipfs.api.Peer;
-import org.javatuples.Pair;
-import org.javatuples.Quartet;
-import org.javatuples.Quintet;
-import org.javatuples.Triplet;
+import org.javatuples.*;
 
 import java.io.IOException;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class SwarmManager extends Thread{
     public static IPFS ipfs;
@@ -67,16 +61,16 @@ public class SwarmManager extends Thread{
                 Crashed.add(PeerData.Existing_peers.get(i));
             }
         }
-        
+
         PeerData.SendMtx.acquire();
         for(i = 0; i < PeerData.Leaving_peers.size(); i++) {
-        	if(!Crashed.contains(PeerData.Leaving_peers.get(i))) {
-        		Crashed.add(PeerData.Leaving_peers.get(i));
-        	}
+            if(!Crashed.contains(PeerData.Leaving_peers.get(i))) {
+                Crashed.add(PeerData.Leaving_peers.get(i));
+            }
         }
         PeerData.Leaving_peers.clear();
         PeerData.SendMtx.release();
-        
+
         remove_from_data_structures(Crashed);
 
         return Crashed;
@@ -117,7 +111,7 @@ public class SwarmManager extends Thread{
                     if(PeerData.Auth_List.contains(PeerData.Wait_Ack.get(i).getValue1())){
                         //put in queue
                         //remove from waitAck
-                        PeerData.queue.add(new Quintet<>(ipfs.id().get("ID").toString(),PeerData.Wait_Ack.get(i).getValue1(),PeerData.middleware_iteration,true,PeerData.GradientPartitions.get(PeerData.Wait_Ack.get(i).getValue1())));
+                        //PeerData.queue.add(new Sextet<>(new ArrayList<>(Collections.singleton(ipfs.id().get("ID").toString())),PeerData.Wait_Ack.get(i).getValue1(),PeerData.middleware_iteration,true,PeerData.GradientPartitions.get(PeerData.Wait_Ack.get(i).getValue1()),null));
                         PairsToRemove.add(PeerData.Wait_Ack.get(i));
                     }
                     else{
@@ -234,10 +228,11 @@ public class SwarmManager extends Thread{
         PeerData.mtx.acquire();
         for(int i = 0; i < PeerData.Client_Wait_Ack.size(); i++){
             Peer = PeerData.Client_Wait_Ack.get(i).getValue0();
+
             partition = PeerData.Client_Wait_Ack.get(i).getValue1();
 
             if(Check_iteration(Peer,0)){
-                Quintet<String,Integer,Integer,Boolean,List<Double>> tuple = new Quintet<>(Peer,partition,PeerData.middleware_iteration,true,(List<Double>) AuxilaryIpfs.Get_Message(Peer,partition+"_Gradients"));
+                Sextet<List<String>,Integer,Integer,Boolean,double[],String> tuple = new Sextet<>(new ArrayList<>(Collections.singleton(Peer)),partition,PeerData.middleware_iteration,true,AuxilaryIpfs.get_Message(Peer,partition+"_Gradients"),null);
                 PeerData.queue.add(tuple);
 
             }
@@ -265,7 +260,7 @@ public class SwarmManager extends Thread{
             partition = PeerData.Replica_Wait_Ack.get(i).getValue1();
 
             if(Check_iteration(Peer,1)){
-                Quintet<String,Integer,Integer,Boolean,List<Double>> tuple = new Quintet<>(Peer,partition,PeerData.middleware_iteration,false,(List<Double>) AuxilaryIpfs.Get_Message(Peer,partition+"_Replicas"));
+                Sextet<List<String>,Integer,Integer,Boolean,double[],String> tuple = new Sextet(new ArrayList<>(Collections.singleton(Peer)),partition,PeerData.middleware_iteration,false, AuxilaryIpfs.get_Message(Peer,partition+"_Replicas"),null);
                 PeerData.queue.add(tuple);
                 Participants = AuxilaryIpfs.Get_Participant_Number(Peer,"Participants");
                 update_participants(partition,Participants.get(partition));
@@ -285,8 +280,8 @@ public class SwarmManager extends Thread{
 
             if(Check_iteration(Peer,2) || PeerData.Wait_Ack.get(i).getValue2() == -1){
                 List<Double> Updated_Partition = (List<Double>) AuxilaryIpfs.Get_Message(Peer,partition+"_Updates");
-                for(int j = 0; j < PeerData.Weight_Address.get(partition).size(); j++){
-                    PeerData.Weight_Address.get(partition).set(j,Updated_Partition.get(j));
+                for(int j = 0; j < PeerData.Weight_Address.get(partition).length; j++){
+                    PeerData.Weight_Address.get(partition)[j]  = Updated_Partition.get(j);
                 }
                 if(PeerData.Servers_Iteration.containsKey(Peer)){
                     if(PeerData.Servers_Iteration.get(Peer) < PeerData.middleware_iteration){

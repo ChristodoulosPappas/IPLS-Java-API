@@ -1,5 +1,6 @@
 import io.ipfs.api.IPFS;
 import org.apache.commons.cli.*;
+import sun.nio.ch.sctp.PeerAddrChange;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
@@ -44,7 +45,13 @@ public class Middleware{
         min_peers.setRequired(true);
         options.addOption(min_peers);
 
+        Option indirect_communication = new Option("i", "indirect_communication", true, "Insert 1 if indirect communication is true");
+        indirect_communication.setRequired(true);
+        options.addOption(indirect_communication );
 
+        Option training_time = new Option("training","training",true,"Insert the training time of the FL process");
+        training_time.setRequired(true);
+        options.addOption(training_time);
 
         Option IPNS = new Option("IPNS", "IPNS",true,"Provide Indirect communication, instead of using message passing protocols use IPFS file system capabilities");
         options.addOption(IPNS);
@@ -63,7 +70,14 @@ public class Middleware{
             PeerData._PARTITIONS  = new Integer(cmd.getOptionValue("partitions"));
             PeerData._MIN_PARTITIONS = new Integer(cmd.getOptionValue("minimum_partitions"));
             PeerData.Min_Members = new Integer(cmd.getOptionValue("min_peers"));
-
+            int communicaiton = new Integer(cmd.getOptionValue("indirect_communication"));
+            PeerData.Training_time = new Integer(cmd.getOptionValue("training"));
+            if(communicaiton > 0){
+                PeerData.Indirect_Communication = true;
+            }
+            else{
+                PeerData.Indirect_Communication = false;
+            }
             if(cmd.getOptionValue("IPNS") != null){
                 if(cmd.getOptionValue("IPNS").equals("true")){
                     PeerData.IPNS_Enable = true;
@@ -103,7 +117,7 @@ public class Middleware{
         if(task == 1){
             short bootstraper = in.readShort();
             if(bootstraper == 0) {
-               is_bootstraper = false;
+                is_bootstraper = false;
             }
             else{
                 is_bootstraper = true;
@@ -166,56 +180,53 @@ public class Middleware{
 
         out.flush();
     }
-    public static void main(String argv[]) throws Exception {
+    public static void main(String argv[]) {
         parse_arguments(argv);
-        int _TRAINING_START = 0,_TRAINING_END = 0;
-        PeerData._LOG.put("training",new ArrayList<>());
-        ServerSocket serverSocket = new ServerSocket(port);
-        Light_IPLS_Daemon ipls_daemon = null;
+        try {
+            int _TRAINING_START = 0, _TRAINING_END = 0;
+            PeerData._LOG.put("training", new ArrayList<>());
+            ServerSocket serverSocket = new ServerSocket(port);
+            Light_IPLS_Daemon ipls_daemon = null;
 
-        System.out.println("OK");
-        while (true){
-            Socket clientSocket = serverSocket.accept();
-            Get_Task(2,clientSocket);
-            if(task == 1){
-                System.out.println("CREATE A NEW IPLS INSTANCE : " + Path + " , " + FileName + " , " + Bootstrappers + " , " + is_bootstraper + " , " + model_size);
-                ipls = new IPLS(Path,FileName,Bootstrappers,is_bootstraper, model_size);
-                //IF I AM BOOTSTRAPER THEN DO NOT CONTINUE
-                if(is_bootstraper){
-                    ipls.init();
-                    while (true){}
+            while (true) {
+                Socket clientSocket = serverSocket.accept();
+                Get_Task(2, clientSocket);
+                if (task == 1) {
+                    System.out.println("CREATE A NEW IPLS INSTANCE : " + Path + " , " + FileName + " , " + Bootstrappers + " , " + is_bootstraper + " , " + model_size);
+                    ipls = new IPLS(Path, FileName, Bootstrappers, is_bootstraper, model_size);
+                    //IF I AM BOOTSTRAPER THEN DO NOT CONTINUE
+                    if (is_bootstraper) {
+                        ipls.init();
+                        while (true) {
+                        }
+                    }
+                    ipls_daemon = new Light_IPLS_Daemon(ipls);
+                    ipls_daemon.start();
+                    Send_Ack(clientSocket);
+                    clientSocket.close();
+                } else if (task == 2) {
+                    _TRAINING_END = (int) Instant.now().getEpochSecond();
+                    int num = _TRAINING_END - _TRAINING_START;
+                    PeerData._LOG.get("training").add(num);
+                    ipls_daemon.UpdateModel(Updates);
+                    for (int j = 0; j < Updates.size(); j++) {
+                        Updates.set(j, Updates.get(j) + 1);
+                    }
+                    Send_Ack(clientSocket);
+                    clientSocket.close();
+                } else if (task == 3) {
+                    Return_Global_model(ipls_daemon.Get_Partitions(), clientSocket);
+                    _TRAINING_START = (int) Instant.now().getEpochSecond();
+                    //Return_Global_model(Updates,clientSocket);
+                    clientSocket.close();
+                } else {
+                    //Ipls.terminate
                 }
-                ipls_daemon = new Light_IPLS_Daemon(ipls);
-                ipls_daemon.start();
-                Send_Ack(clientSocket);
-                clientSocket.close();
-            }
-            else if(task == 2){
-                System.out.println("CALL Update Model "  );
-                _TRAINING_END = (int) Instant.now().getEpochSecond();
-                int num = _TRAINING_END-_TRAINING_START;
-                PeerData._LOG.get("training").add(num);
-                ipls_daemon.UpdateModel(Updates);
-                for(int j = 0; j < Updates.size(); j++){
-                    Updates.set(j,Updates.get(j) + 1);
-                }
-                Send_Ack(clientSocket);
-                clientSocket.close();
-            }
-            else if(task == 3){
-                System.out.println("CALL GET_PARTITIONS ");
-                Return_Global_model(ipls_daemon.Get_Partitions(),clientSocket);
-                _TRAINING_START = (int) Instant.now().getEpochSecond();
-                //Return_Global_model(Updates,clientSocket);
-                clientSocket.close();
-            }
-            else{
-                //Ipls.terminate
-            }
 
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.exit(-1);
         }
     }
-
-
-
 }
