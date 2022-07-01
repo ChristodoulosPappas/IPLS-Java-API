@@ -55,6 +55,7 @@ public class DS_query_manager extends Thread{
     public void poll_for_gradient_partitions() throws Exception{
         int curr_iter = 0;
         int print_counter = 0;
+        boolean first_commitment = false;
         boolean print_flag = false;
         List<Triplet> black_list = new ArrayList<>();
         List<org.javatuples.Pair<String,Integer>> committed_gradients = new ArrayList<>();
@@ -62,10 +63,13 @@ public class DS_query_manager extends Thread{
         Map<Integer, List<Pair<byte[], byte[]>>> gradient_commitments = new HashMap<>();
         while(true){
             while (PeerData.Auth_List.size() == 0){
-                Thread.sleep(500);
+                Thread.sleep(1000);
             }
             while (ipfsClass.find_iter() == -1 ){
                 Thread.yield();
+            }
+            if (curr_iter != ipfsClass.find_iter()) {
+                first_commitment = false;
             }
             curr_iter = ipfsClass.find_iter();
             // Download the gradient commitments that didn't downloaded yet
@@ -80,9 +84,16 @@ public class DS_query_manager extends Thread{
                     continue;
                 }
                 for (Pair<byte[], byte[]> p : gradient_commitments.get(PeerData.Auth_List.get(i))) {
+                    //System.out.println(PeerData.aggregation_download_scheduler);
+                    //FSystem.out.println(new Quintet(Base58.encode(p.right),new String(p.left),curr_iter,PeerData.Auth_List.get(i),PeerData._ID));
                     PeerData.aggregation_download_scheduler.add_file(new Quintet(Base58.encode(p.right),new String(p.left),curr_iter,PeerData.Auth_List.get(i),PeerData._ID));
+
                     committed_gradients.add(new org.javatuples.Pair<>(new String(p.left),PeerData.Auth_List.get(i)));
                     print_flag = true;
+                    if(!first_commitment){
+                        PeerData.Start_download_time = System.currentTimeMillis();
+                    }
+                    first_commitment = true;
                 }
             }
             if( print_flag || print_counter%4 == 0){
@@ -99,6 +110,7 @@ public class DS_query_manager extends Thread{
                 black_list = new ArrayList<>();
                 committed_gradients = new ArrayList<>();
                 System.out.println(ANSI_BLUE +"Going to sleep"+ ANSI_RESET);
+                first_commitment = false;
                 while(ipfsClass.find_iter() == curr_iter ){
                     Thread.yield();
                 }

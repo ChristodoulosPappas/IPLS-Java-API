@@ -323,23 +323,23 @@ public class SwarmManager extends Thread{
             sleep_time = 1;
         }
 
-        if(AuxilaryIpfs.get_curr_time() < AuxilaryIpfs.training_elapse_time(PeerData.middleware_iteration)){
+        if(AuxilaryIpfs.get_curr_time() < AuxilaryIpfs.training_elapse_time(AuxilaryIpfs.find_iter())){
             sleep_time = AuxilaryIpfs.aggregation_elapse_time(PeerData.middleware_iteration) - AuxilaryIpfs.get_curr_time();
         }
-        else if(AuxilaryIpfs.get_curr_time() < AuxilaryIpfs.aggregation_elapse_time(PeerData.middleware_iteration)){
-            sleep_time = AuxilaryIpfs.aggregation_elapse_time(PeerData.middleware_iteration) - AuxilaryIpfs.get_curr_time();
+        else if(AuxilaryIpfs.get_curr_time() < AuxilaryIpfs.aggregation_elapse_time(AuxilaryIpfs.find_iter())){
+            sleep_time = AuxilaryIpfs.aggregation_elapse_time(AuxilaryIpfs.find_iter()) - AuxilaryIpfs.get_curr_time();
         }
-        else if(AuxilaryIpfs.get_curr_time() < AuxilaryIpfs.synch_elapse_time(PeerData.middleware_iteration)){
+        else if(AuxilaryIpfs.get_curr_time() < AuxilaryIpfs.synch_elapse_time(AuxilaryIpfs.find_iter())){
             AuxilaryIpfs.clear_client_wait_ack_list();
-            sleep_time = AuxilaryIpfs.synch_elapse_time(PeerData.middleware_iteration) - AuxilaryIpfs.get_curr_time();
+            sleep_time = AuxilaryIpfs.synch_elapse_time(AuxilaryIpfs.find_iter()) - AuxilaryIpfs.get_curr_time();
         }
-        else if(AuxilaryIpfs.get_curr_time() > AuxilaryIpfs.synch_elapse_time(PeerData.middleware_iteration)){
+        else if(AuxilaryIpfs.get_curr_time() > AuxilaryIpfs.synch_elapse_time(AuxilaryIpfs.find_iter())){
             //CLEAR REPLICAS WAITING TABLE
             AuxilaryIpfs.clear_replica_wait_ack_list();
-            if(AuxilaryIpfs.training_elapse_time(PeerData.middleware_iteration + 1) != -1 &&
-                    AuxilaryIpfs.get_curr_time() >= AuxilaryIpfs.training_elapse_time(PeerData.middleware_iteration+1) - AuxilaryIpfs.get_training_time()/6){
+            if(AuxilaryIpfs.training_elapse_time(AuxilaryIpfs.find_iter() + 1) != -1 &&
+                    AuxilaryIpfs.get_curr_time() >= AuxilaryIpfs.training_elapse_time(AuxilaryIpfs.find_iter()+1) - AuxilaryIpfs.get_training_time()/6){
                 AuxilaryIpfs.clear_wait_ack_list();
-                sleep_time = AuxilaryIpfs.training_elapse_time(PeerData.middleware_iteration+1) - AuxilaryIpfs.get_curr_time();
+                sleep_time = AuxilaryIpfs.training_elapse_time(AuxilaryIpfs.find_iter()+1) - AuxilaryIpfs.get_curr_time();
             }
             /*
             else if(AuxilaryIpfs.training_elapse_time(PeerData.middleware_iteration + 1) != -1 &&
@@ -356,7 +356,7 @@ public class SwarmManager extends Thread{
         //PeerData.middleware_iteration = find_iter();
         PeerData.mtx.release();
 
-        return sleep_time;
+        return sleep_time + 10;
     }
 
     public void run(){
@@ -369,7 +369,8 @@ public class SwarmManager extends Thread{
                 if(PeerData.Relaxed_SGD){
                     sleep_time = IPLS_Peer_Scheduler();
                     if(sleep_time>0){
-                        Thread.sleep(sleep_time*1000);
+                        //Thread.sleep(sleep_time*1000);
+                        Thread.sleep(10*1000);
                     }
                 }
                 else {

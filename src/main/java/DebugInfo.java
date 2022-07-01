@@ -1,5 +1,5 @@
 public class DebugInfo {
-    static boolean isEnabled = false;
+    static boolean isEnabled = true;
     public DebugInfo(boolean isEnabled){
         this.isEnabled = isEnabled;
     }

@@ -743,7 +743,7 @@ public class IPFS {
         conn.setRequestMethod("POST");
         conn.setRequestProperty("Content-Type", "application/json");
         conn.setReadTimeout(timeout);
-        conn.setChunkedStreamingMode(1024);
+        conn.setChunkedStreamingMode(2048);
         conn.setUseCaches(false);
         conn.setDefaultUseCaches(false);
 
@@ -757,13 +757,13 @@ public class IPFS {
 
             ByteArrayOutputStream resp = new ByteArrayOutputStream();
 
-            byte[] buf = new byte[4096];
+            byte[] buf = new byte[2048];
             int r;
             while ((r = in.read(buf)) >= 0)
                 resp.write(buf, 0, r);
+                resp.flush();
             in.close();
-
-            conn.disconnect();
+            //conn.disconnect();
             return resp.toByteArray();
         } catch (ConnectException e) {
             throw new RuntimeException("Couldn't connect to IPFS daemon at "+target+"\n Is IPFS running?");

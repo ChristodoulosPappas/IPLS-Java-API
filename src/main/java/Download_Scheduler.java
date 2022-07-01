@@ -15,8 +15,9 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 public class Download_Scheduler extends Thread{
     MyIPFSClass ipfs;
-    int hashes_remaining;
+    int hashes_remaining,sync_hashes_remaining;
     int mod;
+    long data_received = 0;
     BlockingQueue<Quintet<String,String,Integer,Integer,String>> comm_queue = new LinkedBlockingQueue<>();
     BlockingQueue<Quintet<String,List<String>,Integer,Integer,String>> merges_queue = new LinkedBlockingQueue<>();
     BlockingQueue<Quartet<String,String,Integer,Integer>> update_queue = new LinkedBlockingQueue<>();
@@ -39,13 +40,27 @@ public class Download_Scheduler extends Thread{
         Map<String,List<String>> providers_of_block = new HashMap<>();
         // Maps each the block cids each provider holds
         Map<String,List<String>> blocks_of_providers = new HashMap<>();
+        //System.out.println("block Cids : " + Block_Cids);
+
         for(int i = 0; i < Block_Cids.size(); i++){
             providers_of_block.put(Block_Cids.get(i),new ArrayList<>());
-            provs = ipfs.find_providers(Block_Cids.get(i));
-            if(provs.size() == 0){
-                Thread.sleep(400);
-                provs = ipfs.find_providers(Block_Cids.get(i));
+            provs = new ArrayList<>();
+            if(PeerData.Providers_Map.containsKey(Block_Cids.get(i))){
+                provs.add(PeerData.Providers_Map.get(Block_Cids.get(i)));
             }
+            else{
+                provs = ipfs.find_providers(Block_Cids.get(i));
+                System.out.println("OK");
+                if(provs.size() == 0){
+                    Thread.sleep(900);
+                    System.out.println("Waiting");
+                    provs = ipfs.find_providers(Block_Cids.get(i));
+                    if(provs.size() ==0){
+                        provs.add("NaN");
+                    }
+                }
+            }
+
             for(int j = 0; j < provs.size(); j++){
                 providers_of_block.get(Block_Cids.get(i)).add(provs.get(j));
             }
@@ -56,6 +71,7 @@ public class Download_Scheduler extends Thread{
                 blocks_of_providers.get(provs.get(j)).add(Block_Cids.get(i));
             }
         }
+        //System.out.println("Blocks of providers " +  blocks_of_providers);
         return blocks_of_providers;
     }
 
@@ -102,8 +118,23 @@ public class Download_Scheduler extends Thread{
     // Send merge request to all selected providers
     public void Merge_request(Map<String,List<String>> providers, int partition) throws Exception{
         List<String> providers_id = new ArrayList<>(providers.keySet());
+        String Hash;
+        List<String> Hashes = new ArrayList<>();
         for(int i = 0; i < providers_id.size(); i++){
-            ipfs.send(providers_id.get(i),ipfs.Marshall_Packet((short) 1, partition, ipfs.find_iter(),PeerData._ID, providers.get(providers_id.get(i))));
+            if(!providers_id.get(i).equals("NaN")){
+                System.out.println("Sending to " + providers_id.get(i) + " merge : " + providers.get(providers_id.get(i)).size() );
+                PeerData.storage_client.merge(providers.get(providers_id.get(i)),ipfs.find_iter(),partition,providers_id.get(i),mod);
+
+            }
+            else{
+                for(int j = 0; j < providers.get(providers_id.get(i)).size(); j++){
+                    Hash  = providers.get(providers_id.get(i)).get(j);
+                    Hashes.add(Hash);
+                    Hashes.add(Hash);
+                    merges_queue.add(new Quintet<>(Hash,Hashes,ipfs.find_iter(),partition,PeerData._ID));
+                }
+            }
+            //ipfs.send(providers_id.get(i) + "Storage", ipfs.Marshall_Packet((short) 1, partition, ipfs.find_iter(),PeerData._ID, providers.get(providers_id.get(i))));
         }
     }
 
@@ -114,8 +145,10 @@ public class Download_Scheduler extends Thread{
     // [g1[1] + g2[1] + g3[1],g4[1],g5[1]].
     public void Minimize_Gradients_file(List<String> Block_Cids, int partition) throws Exception{
         // find the best possible partial aggregation
-        Map<String,List<String>> providers = decide_partial_aggregations(Find_storage_nodes(Block_Cids),Block_Cids);
+        //Map<String,List<String>> providers = decide_partial_aggregations(Find_storage_nodes(Block_Cids),Block_Cids);
+        Map<String,List<String>> providers = Find_storage_nodes(Block_Cids);
         PeerData.dlog.log("Providers : " + providers);
+        System.out.println(providers.keySet());
         // notify the storage peers
         Merge_request(providers,partition);
     }
@@ -303,7 +336,8 @@ public class Download_Scheduler extends Thread{
                 PeerData.queue.add(newtuple);
             }
             else{
-                PeerData.dlog.log("Weird error " + status);
+
+                System.out.println("Weird error " + status);
                 System.exit(-1);
             }
         }
@@ -316,11 +350,20 @@ public class Download_Scheduler extends Thread{
 
     // This method is called in order to download the content from the given list. If
     // no provider found for all the gradients return false, else return true
-    public boolean download_partial_gradients(List<Quintet<String,List<String>,Integer,Integer,String>> merge_responses, Map<Pair<String,Integer>,String> cid_to_peer) throws Exception{
+    public boolean download_partial_gradients(List<Quintet<String,List<String>,Integer,Integer,String>> merge_responses, Map<Pair<String,Integer>,String> cid_to_peer,boolean GradientsAggregation) throws Exception{
         Quintet<String,List<String>,Integer,Integer,String> response;
+        List<Pair<String,String>> Hashes = new ArrayList<>();
         List<Quintet> black_list = new ArrayList<>();
+        List<String> Downloaded = new ArrayList<>();
         boolean providers_exist = false;
-        for(int i = 0; i < merge_responses.size() && ipfs.aggregation_elapse_time(ipfs.find_iter()) > ipfs.get_curr_time() ; i++){
+
+        for(int i = 0; i < merge_responses.size(); i++){
+            Hashes.add(new Pair<>(merge_responses.get(i).getValue0(),merge_responses.get(i).getValue0()));
+        }
+        Downloaded = ipfs.batched_download(Hashes);
+
+
+        for(int i = 0; i < merge_responses.size() && ipfs.synch_elapse_time(ipfs.find_iter()) > ipfs.get_curr_time() ; i++){
             response = merge_responses.get(i);
             int Partition = response.getValue3();
             String Hash = response.getValue0();
@@ -328,12 +371,17 @@ public class Download_Scheduler extends Thread{
             String Aggregator = response.getValue4();
             //List<Pair<String,Integer>> keySet = new ArrayList<>();
             int iter = response.getValue2();
-            int status;
+            int status = 2;
             // Remove the hash of the partial sum
             Peer_cids.remove(0);
             //download the partial sum
             //if(ipfs.find_iter() == iter){
-            status = download_updates(Hash,null);
+
+            if(Downloaded.contains(Hash)){
+                status = 0;
+            }
+            //status = download_updates(Hash,null);
+
             //}
             if((status == 1 || status == 0) && !providers_exist ){
                 providers_exist = true;
@@ -343,32 +391,60 @@ public class Download_Scheduler extends Thread{
             }
             if(status == 0 ){
                 black_list.add(response);
-                if(Aggregator.equals(PeerData._ID)){
-                    PeerData.downloaded_hashes++;
+                if(GradientsAggregation){
+                    if(Aggregator.equals(PeerData._ID)){
+                        System.out.println("Gradients downloaded " + Peer_cids + " , P : " + Partition + " , I : " + iter + " ,H : " + Hash);
+                        PeerData.dlog.log("Gradients downloaded " + Peer_cids + " , P : " + Partition + " , I : " + iter);
+                    }
+                    else{
+                        PeerData.dlog.log("Other aggregators gradients downloaded " + Aggregator + " , P : " + Partition + " , I : " + iter);
+                    }
 
-                    PeerData.dlog.log("Gradients downloaded " + Peer_cids + " , P : " + Partition + " , I : " + iter);
+                    PeerData.com_mtx.acquire();
+                    // In case you downloaded the data and the gradients are destined for the aggregator, aggregate the data
+                    if(PeerData._ID.equals(Aggregator)){
+                        PeerData.com_mtx.release();
+                        // Map the Cids and their partitions to the corresponding peer
+                        PeerData.dlog.log("Cid to peer : " + cid_to_peer +  "  , " + Peer_cids);
+
+                        List<String> Peers = new ArrayList<>();
+                        for(int j = 0; j < Peer_cids.size(); j++){
+                            PeerData.downloaded_hashes++;
+                            Peers.add(cid_to_peer.get(new Pair<>(Peer_cids.get(j),Partition)));
+                        }
+                        // Commit the downloaded data for update
+                        PeerData.queue.add(new Sextet<>(Peers,Partition,iter,true,null,Hash));
+                        hashes_remaining -= Peer_cids.size();
+                    }
+                    else{
+                        PeerData.com_mtx.release();
+                    }
                 }
                 else{
-                    PeerData.dlog.log("Other aggregators gradients downloaded " + Aggregator + " , P : " + Partition + " , I : " + iter);
-                }
-
-                PeerData.com_mtx.acquire();
-                // In case you downloaded the data and the gradients are destined for the aggregator, aggregate the data
-                if(PeerData._ID.equals(Aggregator)){
-                    PeerData.com_mtx.release();
-                    // Map the Cids and their partitions to the corresponding peer
-                    PeerData.dlog.log("Cid to peer : " + cid_to_peer +  "  , " + Peer_cids);
-
+                    System.out.println("Partial updates downloaded " + Peer_cids + " , P : " + Partition + " , I : " + iter);
+                    PeerData.dlog.log("Inserting : " +new ArrayList<>(Collections.singleton(Aggregator)) + " , " + Partition + " , " + iter);
                     List<String> Peers = new ArrayList<>();
-                    for(i = 0; i < Peer_cids.size(); i++){
-                        Peers.add(cid_to_peer.get(new Pair<>(Peer_cids.get(i),Partition)));
+                    for(int j = 0; j < Peer_cids.size(); j++){
+                        Peers.add(cid_to_peer.get(new Pair<>(Peer_cids.get(j),Partition)));
                     }
                     // Commit the downloaded data for update
                     PeerData.queue.add(new Sextet<>(Peers,Partition,iter,true,null,Hash));
-                    hashes_remaining -= Peer_cids.size();
-                }
-                else{
+
+                    Sextet<List<String>,Integer,Integer,Boolean,double[],String> newtuple = new Sextet<>(Peers,Partition,iter,false, null,Hash);
+                    //update_participants(Partition,ipfs.Download_Partial_Updates(Hash).getValue0());
+                    // Because replica sent his aggregated partition, peer doesn't need the gradients he downloaded
+                    // so he can remove them
+                    PeerData.com_mtx.acquire();
+                    if(PeerData.Other_Replica_Gradients.containsKey(new Pair<>(Partition,Aggregator))){
+                        PeerData.Other_Replica_Gradients.remove(new Pair<>(Partition,Aggregator));
+                        PeerData.Other_Replica_Gradients_Received.remove(new Pair<>(Partition,Aggregator));
+                    }
+                    PeerData.Received_Replicas.add(new Pair<>(Partition,Aggregator));
                     PeerData.com_mtx.release();
+
+                    PeerData.queue.add(newtuple);
+                    sync_hashes_remaining -= Peer_cids.size();
+                    System.out.println(sync_hashes_remaining);
                 }
 
             }
@@ -537,26 +613,86 @@ public class Download_Scheduler extends Thread{
             // Wait until you get new commitmets. For efficiency purposes you can download the content of the commitment
             // before aggregation phase starts, but the content is encrypted until the start of the aggregation phase.
             // Also you can't get any commitment in the aggregation phase.
-            while(ipfs.find_iter() == -1 || ipfs.training_elapse_time(ipfs.find_iter()) > ipfs.get_curr_time() ){
-                if(ipfs.find_iter() != -1){
-                    int diff = ipfs.training_elapse_time(ipfs.find_iter()) - ipfs.get_curr_time();
-                    if(diff > 0){
-                        PeerData.dlog.log("Sleeping for : " + diff*1000);
-                        Thread.sleep(diff*1000);
-                    }
+            while((ipfs.find_iter() == -1 || ipfs.training_elapse_time(ipfs.find_iter())+5 > ipfs.get_curr_time())){
+                Thread.yield();
+                if( comm_queue.size() == PeerData.Client_Wait_Ack.size() && PeerData.Client_Wait_Ack.size() != 0){
                     break;
                 }
-                else{
-                    Thread.yield();
-                }
             }
+            System.out.println("Comm queue size : " + comm_queue.size() + " , " + PeerData.Client_Wait_Ack.size());
             curr_iter = ipfs.find_iter();
+            //System.out.println(curr_iter);
             // Get every commitment the peer received
             while(comm_queue.size() != 0){
                 Committed_hashes.add(comm_queue.take());
                 PeerData.commited_hashes++;
             }
+            //System.out.println(Committed_hashes);
+            for(int i = 0; i < PeerData.Auth_List.size(); i++){
+                CIDs.put(PeerData.Auth_List.get(i),new ArrayList<>());
+            }
+            for(int i = 0; i < Committed_hashes.size(); i++){
+                Cid_to_participant.put(new Pair<>(Committed_hashes.get(i).getValue0(),Committed_hashes.get(i).getValue3()),Committed_hashes.get(i).getValue1());
+                CIDs.get(Committed_hashes.get(i).getValue3()).add(Committed_hashes.get(i).getValue0());
+            }
+            System.out.println("Minimizing Gradients file");
 
+            // Send merge requests to providers and wait to get some responses
+            for(int i = 0; i < PeerData.Auth_List.size(); i++){
+                Minimize_Gradients_file(CIDs.get(PeerData.Auth_List.get(i)), PeerData.Auth_List.get(i));
+            }
+            hashes_remaining = PeerData.commited_hashes;
+            System.out.println("Start downloading");
+            // Get merge replies and download partial aggregations
+            while(ipfs.find_iter() == curr_iter && hashes_remaining != 0 ){
+                if(merges_queue.size() == 0 && Merged_hashes.size() == 0){
+                    Thread.yield();
+                    continue;
+                }
+                while(merges_queue.size() != 0){
+                    Merged_hashes.add(merges_queue.take());
+                }
+                PeerData.dlog.log(Merged_hashes);
+                System.out.println("Merged hashes : "  +Merged_hashes.size());
+                download_partial_gradients(Merged_hashes,Cid_to_participant,true);
+            }
+            Committed_hashes = new ArrayList<>();
+            System.out.println(curr_iter + " , " + ipfs.find_iter());
+            while(curr_iter == ipfs.find_iter()){
+                Thread.yield();
+            }
+            //if(ipfs.synch_elapse_time(ipfs.find_iter()) - ipfs.get_curr_time() > 0){
+            //    Thread.sleep((ipfs.synch_elapse_time(ipfs.find_iter()) - ipfs.get_curr_time())*1000);
+            //}
+        }
+    }
+
+    public void sync_merge_and_download() throws Exception{
+        boolean wait_next_round = true;
+        List<Quartet<String,String,Integer,Integer>> Committed_hashes = new ArrayList<>();
+        List<Quintet<String,List<String>,Integer,Integer,String>> Merged_hashes = new ArrayList<>();
+        Map<Pair<String,Integer>,String> Cid_to_participant = new HashMap<>();
+        Map<Integer,List<String>> CIDs = new HashMap<>();
+        int curr_iter;
+        while(true){
+
+            // Wait until you get new commitmets. For efficiency purposes you can download the content of the commitment
+            // before aggregation phase starts, but the content is encrypted until the start of the aggregation phase.
+            // Also you can't get any commitment in the aggregation phase.
+            while(true){
+                Thread.yield();
+                if( partial_updates_queue.size() == PeerData.Replica_Wait_Ack.size() && PeerData.Replica_Wait_Ack.size() != 0){
+                    break;
+                }
+            }
+            curr_iter = ipfs.find_iter();
+            System.out.println(curr_iter);
+            // Get every commitment the peer received
+            while(partial_updates_queue.size() != 0){
+                Committed_hashes.add(partial_updates_queue.take());
+                PeerData.commited_hashes++;
+            }
+            System.out.println(Committed_hashes);
             for(int i = 0; i < PeerData.Auth_List.size(); i++){
                 CIDs.put(PeerData.Auth_List.get(i),new ArrayList<>());
             }
@@ -568,9 +704,11 @@ public class Download_Scheduler extends Thread{
             for(int i = 0; i < PeerData.Auth_List.size(); i++){
                 Minimize_Gradients_file(CIDs.get(PeerData.Auth_List.get(i)), PeerData.Auth_List.get(i));
             }
-            hashes_remaining = PeerData.commited_hashes;
+            sync_hashes_remaining = PeerData.commited_hashes;
+            System.out.println(sync_hashes_remaining);
+            System.out.println("Start downloading");
             // Get merge replies and download partial aggregations
-            while(ipfs.find_iter() == curr_iter && hashes_remaining != 0 ){
+            while(ipfs.find_iter() == curr_iter && sync_hashes_remaining != 0 ){
                 if(merges_queue.size() == 0 && Merged_hashes.size() == 0){
                     Thread.yield();
                     continue;
@@ -579,9 +717,13 @@ public class Download_Scheduler extends Thread{
                     Merged_hashes.add(merges_queue.take());
                 }
                 PeerData.dlog.log(Merged_hashes);
-                download_partial_gradients(Merged_hashes,Cid_to_participant);
+                download_partial_gradients(Merged_hashes,Cid_to_participant,false);
             }
             Committed_hashes = new ArrayList<>();
+            System.out.println(curr_iter + " , " + ipfs.find_iter());
+            while(curr_iter == ipfs.find_iter()){
+                Thread.yield();
+            }
             //if(ipfs.synch_elapse_time(ipfs.find_iter()) - ipfs.get_curr_time() > 0){
             //    Thread.sleep((ipfs.synch_elapse_time(ipfs.find_iter()) - ipfs.get_curr_time())*1000);
             //}
@@ -589,7 +731,7 @@ public class Download_Scheduler extends Thread{
     }
 
     public void add_merge(Quintet merge_response){
-        merges_queue.add(merge_response);
+        System.out.println("Merge added");merges_queue.add(merge_response);
     }
 
     // When a peer receives a commitment checks if it is from his own "client"
@@ -610,6 +752,9 @@ public class Download_Scheduler extends Thread{
     public void cache_partition(String Origin_Peer, int Partition, int Iteration, String Hash) throws Exception{
         Triplet<String, Integer, Integer> pair = new Triplet<>(Origin_Peer, Partition, Iteration);
         ipfs.GetParameters(Hash,PeerData.Weight_Address.get(Partition));
+
+
+
         //for (int i = 0; i < PeerData.Weight_Address.get(Partition).size(); i++) {
         //    PeerData.Weight_Address.get(Partition).set(i, Updated_Partition.get(i));
         //}
@@ -927,7 +1072,14 @@ public class Download_Scheduler extends Thread{
 
         }
         else if(mod == 1){
-            try {select_partial_updates();}
+            try {
+                if (PeerData.Partial_Aggregation) {
+                    sync_merge_and_download();
+                } else {
+                    select_partial_updates();
+                }
+
+            }
             catch (Exception e){
                 e.printStackTrace();
                 System.exit(-1);

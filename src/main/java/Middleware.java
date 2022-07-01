@@ -49,9 +49,14 @@ public class Middleware{
         indirect_communication.setRequired(true);
         options.addOption(indirect_communication );
 
+
         Option training_time = new Option("training","training",true,"Insert the training time of the FL process");
         training_time.setRequired(true);
         options.addOption(training_time);
+
+        Option partial_aggregation = new Option("aggr","partial_aggregation",true,"Insert 1 if aggregators perform partial aggregation");
+        partial_aggregation.setRequired(true);
+        options.addOption(partial_aggregation);
 
         Option IPNS = new Option("IPNS", "IPNS",true,"Provide Indirect communication, instead of using message passing protocols use IPFS file system capabilities");
         options.addOption(IPNS);
@@ -70,13 +75,20 @@ public class Middleware{
             PeerData._PARTITIONS  = new Integer(cmd.getOptionValue("partitions"));
             PeerData._MIN_PARTITIONS = new Integer(cmd.getOptionValue("minimum_partitions"));
             PeerData.Min_Members = new Integer(cmd.getOptionValue("min_peers"));
-            int communicaiton = new Integer(cmd.getOptionValue("indirect_communication"));
+            int communication = new Integer(cmd.getOptionValue("indirect_communication"));
             PeerData.Training_time = new Integer(cmd.getOptionValue("training"));
-            if(communicaiton > 0){
+            int aggregation = new Integer(cmd.getOptionValue("partial_aggregation"));
+            if(communication > 0){
                 PeerData.Indirect_Communication = true;
             }
             else{
                 PeerData.Indirect_Communication = false;
+            }
+            if(aggregation > 0){
+                PeerData.Partial_Aggregation = true;
+            }
+            else{
+                PeerData.Partial_Aggregation = false;
             }
             if(cmd.getOptionValue("IPNS") != null){
                 if(cmd.getOptionValue("IPNS").equals("true")){
@@ -92,7 +104,7 @@ public class Middleware{
         } catch (Exception e) {
             System.out.println(e.getMessage());
             formatter.printHelp("utility-name", options);
-
+            e.printStackTrace();
             System.exit(1);
         }
     }
@@ -180,6 +192,23 @@ public class Middleware{
 
         out.flush();
     }
+
+    public static List<Double> Encode(List<Double> updates){
+        List<Double> encoded_gradients = new ArrayList<>();
+        for(int i = 0; i < updates.size(); i++){
+            if(updates.get(i) > 10.0){
+                encoded_gradients.add(10*Math.pow(10,12));
+            }
+            else if(updates.get(i) < -10.0){
+                encoded_gradients.add(-10*Math.pow(10,12));
+            }
+            else{
+                encoded_gradients.add(new Double(updates.get(i) * Math.pow(10,12)).doubleValue());
+            }
+        }
+        return  encoded_gradients;
+    }
+
     public static void main(String argv[]) {
         parse_arguments(argv);
         try {
@@ -189,7 +218,9 @@ public class Middleware{
             Light_IPLS_Daemon ipls_daemon = null;
 
             while (true) {
+                System.out.println("WAITTING");
                 Socket clientSocket = serverSocket.accept();
+                System.out.println("GOT MESSAGE");
                 Get_Task(2, clientSocket);
                 if (task == 1) {
                     System.out.println("CREATE A NEW IPLS INSTANCE : " + Path + " , " + FileName + " , " + Bootstrappers + " , " + is_bootstraper + " , " + model_size);
@@ -208,16 +239,22 @@ public class Middleware{
                     _TRAINING_END = (int) Instant.now().getEpochSecond();
                     int num = _TRAINING_END - _TRAINING_START;
                     PeerData._LOG.get("training").add(num);
-                    ipls_daemon.UpdateModel(Updates);
-                    for (int j = 0; j < Updates.size(); j++) {
-                        Updates.set(j, Updates.get(j) + 1);
+                    if(PeerData.secure_ipls){
+                        ipls_daemon.UpdateModel(Encode(Updates));
                     }
+                    else{
+                        ipls_daemon.UpdateModel(Updates);
+                    }
+                    //for (int j = 0; j < Updates.size(); j++) {
+                    //    Updates.set(j, Updates.get(j) + 1);
+                    //}
                     Send_Ack(clientSocket);
                     clientSocket.close();
                 } else if (task == 3) {
                     Return_Global_model(ipls_daemon.Get_Partitions(), clientSocket);
                     _TRAINING_START = (int) Instant.now().getEpochSecond();
                     //Return_Global_model(Updates,clientSocket);
+                    System.out.println("Returned global model");
                     clientSocket.close();
                 } else {
                     //Ipls.terminate

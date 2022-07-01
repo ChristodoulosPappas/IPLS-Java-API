@@ -1,4 +1,5 @@
 import io.ipfs.api.IPFS;
+import org.javatuples.Pair;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -13,7 +14,8 @@ public class Bootstraper_Services extends Thread{
     public static int training_time;
     public static int Aggregation_time;
     public static int replicas_sync_time;
-
+    public static String View_Hash;
+    IPLS_DS DS;
     public Bootstraper_Services(String Path,int begin_time, int training_time, int Aggregation_time, int replicas_sync_time){
         ipfsClass = new MyIPFSClass(Path);
         ipfs = new IPFS(Path);
@@ -23,13 +25,14 @@ public class Bootstraper_Services extends Thread{
         this.replicas_sync_time = replicas_sync_time;
     }
 
-    public Bootstraper_Services(String Path, String Scheduler_filename,int begin_time, int training_time, int Aggregation_time, int replicas_sync_time){
+    public Bootstraper_Services(String Path, String Scheduler_filename,int begin_time, int training_time, int Aggregation_time, int replicas_sync_time, String View_Hash){
         ipfsClass = new MyIPFSClass(Path);
         ipfs = new IPFS(Path);
         this.begin_time = begin_time;
         this.training_time = training_time;
         this.Aggregation_time = Aggregation_time;
         this.replicas_sync_time = replicas_sync_time;
+        this.View_Hash = View_Hash;
     }
 
     // Schedule method is called by the bootstraper in order to create a training schedule. Firstly the developer has to enter the
@@ -49,7 +52,6 @@ public class Bootstraper_Services extends Thread{
             time += replicas_synchronization_time;
             schedule.add(time);
             schedule.add(iter);
-            iter ++;
         }
         return schedule;
     }
@@ -59,7 +61,7 @@ public class Bootstraper_Services extends Thread{
 
         PeerData.current_schedule =  Schedule(begin_time, training_time, Aggregation_time, replicas_synchronization_time, epochs);
         String Schedule_Hash  = ipfsClass._Upload_File(
-                PeerData.current_schedule,
+                new Pair<>(PeerData.current_schedule,View_Hash),
                 Scheduler_filename
         ).toString();
         System.out.println(Schedule_Hash);
@@ -67,23 +69,30 @@ public class Bootstraper_Services extends Thread{
         ipfs.pubsub.pub("New_Peer",ipfsClass.Marshall_Packet(Schedule_Hash,PeerData._ID,0,(short) 15));
     }
 
+    public void storedirectory(byte[] id,List<byte[]> aggr, List<Integer> partitions,List<byte[]> hashes){
+        DS.storeGradients(id,aggr,partitions,hashes);
+    }
 
     public  void run(){
         int round = 0;
-        IPLS_DS DS = new IPLS_DS(PeerData.Path,false);
+        DS = new IPLS_DS(PeerData.Path,false);
         DS.start();
         DS.set_round(round);
+        iter = 0;
         while(true){
             try {
                 publish_schedule((int) Instant.now().getEpochSecond() + begin_time,  training_time,Aggregation_time,replicas_sync_time,1);
-                System.out.println("Published new schedule : " + PeerData.Schedule_Hash);
-                Thread.sleep((ipfsClass.training_elapse_time(round) - ipfsClass.get_curr_time())*1000);
+                System.out.println("Published new schedule : " + PeerData.Schedule_Hash + " , " + ipfsClass.training_elapse_time(iter) + " , " + ipfsClass.get_curr_time());
+                Thread.sleep((ipfsClass.training_elapse_time(iter) - ipfsClass.get_curr_time() - 3)*1000);
+                System.out.println(">>>>>Clearing Updates ");
                 DS.clear_updates_table();
                 //Thread.sleep((begin_time + 2*(training_time+Aggregation_time+replicas_sync_time))*1000);
+                System.out.println("Waiting : " + PeerData.current_schedule.get(PeerData.current_schedule.size()-2) + " , " + Instant.now().getEpochSecond());
                 while(Instant.now().getEpochSecond()  < PeerData.current_schedule.get(PeerData.current_schedule.size()-2) &&
-                        (PeerData.premature_termination == false || (PeerData.premature_termination == true && PeerData.flush == false))){Thread.sleep(300);}
-                round++;
-                DS.set_round(round);
+                        (PeerData.premature_termination == false || (PeerData.premature_termination == true && PeerData.flush == false))){Thread.yield();}
+                System.out.println(PeerData.flush + " , " + PeerData.current_schedule.get(PeerData.current_schedule.size()-2) + " , " + Instant.now().getEpochSecond());
+                iter++;
+                DS.set_round(iter);
                 DS.flush_ds(true,true);
                 if(PeerData.premature_termination){PeerData.flush = false;}
 

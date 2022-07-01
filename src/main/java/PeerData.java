@@ -56,11 +56,24 @@ public class PeerData {
     // This variable indicates whenever an aggregator on premature termination didn't downloaded
     // all partial updates and his wait_ack list erased
     public static boolean flush = false;
+    // This variable indicates if the bootstrapper wants to make the training process byzantine aggregator robust
+    // What is going to change using this variable is that instead of using double array the nodes use long array
+    // so that it could be compatible with homomorphic commitments.
+    public static boolean secure_ipls = false;
+    // By using this variable, instead of sending addressing information of partially updated
+    // partitions so that other aggregators responsible for the same partition to be able to
+    // download them, broadcast the addressing information to all the other aggregators
+    public static boolean fast_sync = true;
     public static boolean isBootsraper;
     public static boolean training_finished = false;
+    // If true then communication with the directory service happens over UDP
+    // instead of IPFS pub/sub
+    public static boolean DS_udp_comm = false;
     public static int _Iter_Clock = 0;
     public static String _ID = null;
     public static String Schedule_Hash = null;
+    public static String Storage_View_Hash = null;
+    public static String[] View;
     public static String MyPublic_Multiaddr = null;
     public static int Index = 0;
     public static int used_commitments = 0;
@@ -78,12 +91,14 @@ public class PeerData {
     // for the partition he is responsible for, then he can send
     // a merge request so that those partitions are going to
     // be partially aggregated and sent to the server
-    public static boolean Partial_Aggregation = false;
+    public static boolean Partial_Aggregation = true;
     public static boolean local_save = false;
     // In case indirect communication is true then IPLS peers
     // upload their data to the decentralized web instead of
     // communicating directly with other IPLS peers.
     public static boolean Indirect_Communication = false;
+    public static boolean Gradients_Replication = false;
+
     volatile public static int STATE = 0;
 
 
@@ -185,10 +200,23 @@ public class PeerData {
     public static Map<Integer,List<String>> Replica_holders = new HashMap<>();
     public static Map<String,Integer> Servers_Iteration = new HashMap<>();
     public static Map<String,Integer> Clients_Iteration = new HashMap<>();
-
+    public static Map<String,String> Providers_Map = new HashMap<>();
 
     //For testings
     public static int num;
+    public static List<Long> upload_time = new ArrayList<>();
+    // From the first commitment to the completion of downloading
+    public static List<Long> pure_aggregation_time = new ArrayList<>();
+    // From the first commitment to the end of training face, or the completion of downloading
+    public static List<Long> aggregation_time = new ArrayList<>();
+    // Data downloaded by aggregators
+    public static List<Long> Data_download = new ArrayList<>();
+    // the time from the first committed value to the end of synchronization
+    public static List<Long> iter_time = new ArrayList<>();
+    // the time from the begining of training through the end of synchronization
+    public static List<Long> round_time = new ArrayList<>();
+    public static long data_received;
+    public static long Start_download_time;
     // This structure maintains a log that contains important debugging and other data
     public static Map<String,List<Object>> _LOG = new HashMap<>();
     public static Map<String,Integer> _PEER_DOWNLOAD_TIME = new HashMap<>();

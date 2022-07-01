@@ -27,7 +27,7 @@ public class IPLS_Comm {
     public String commit_update( double[] Gradients, int Partition ) throws Exception{
         if(PeerData.Indirect_Communication){
             PeerData.storage_client.sendPartition(PeerData.Provider, PeerData._ID, Partition, PeerData.middleware_iteration,0, Gradients,(byte) 2);
-            System.gc();
+            //System.gc();
         }
         if(PeerData.local_save || !PeerData.Indirect_Communication){
             ipfsClass.update_file("IPLS_directory_" + PeerData._ID + "/" +  Partition + "_Updates",Gradients);
@@ -51,7 +51,7 @@ public class IPLS_Comm {
     public String commit_partial_update( double[] Gradients, int Partition,int workers ) throws Exception{
         if(PeerData.Indirect_Communication){
             PeerData.storage_client.sendPartition(PeerData.Provider, PeerData._ID, Partition, PeerData.middleware_iteration,workers, Gradients,(byte) 1);
-            System.gc();
+            //System.gc();
         }
         if(PeerData.local_save ){
             ipfsClass.Update_file("IPLS_directory_" + PeerData._ID + "/" + Partition + "_partial_update", new Pair<>(workers,Gradients));
@@ -68,7 +68,7 @@ public class IPLS_Comm {
         else{
             if (PeerData.Indirect_Communication) {
                 PeerData.storage_client.sendPartition(PeerData.Provider, Peer, Partition, PeerData.middleware_iteration,0, Gradients,(byte) 0);
-                System.gc();
+                //System.gc();
             }
             String Hash = "Nan";
             if(PeerData.local_save){
@@ -112,6 +112,7 @@ public class IPLS_Comm {
                     PeerData.Partitions_committed.get(0).remove(new Triplet<>(Temp_list.get(i),PeerData.middleware_iteration,Hashes_of_Partitions.get(Temp_list.get(i))));
                 }
             }
+            Thread.sleep(300);
 
         }
         if(!PeerData.local_save){
@@ -130,6 +131,7 @@ public class IPLS_Comm {
         List<byte[]> Aggregators = new ArrayList<>();
         List<byte[]> Hashes = new ArrayList<>();
         List<Integer> Partitions = new ArrayList<>();
+        List<Integer> Partitions_send = new ArrayList<>();
         if(PeerData.Indirect_Communication){
             Partitions = stored_partitions();
         }
@@ -144,9 +146,10 @@ public class IPLS_Comm {
             }
             Aggregators.add(Base58.decode(commitments.get(i).getValue0()));
             Hashes.add(Base58.decode(commitments.get(i).getValue1()));
+            Partitions_send.add(commitments.get(i).getValue2());
             //Partitions.add(Integer.parseInt(String.valueOf(commitments.get(i).getValue2())));
         }
-        PeerData.ds_client.storeGradients(Aggregators,Partitions,Hashes,PeerData.middleware_iteration);
+        PeerData.ds_client.storeGradients(Aggregators,Partitions_send,Hashes,PeerData.middleware_iteration);
         System.out.println(TEXT_GREEN + "COMMITTED SUCCESFULLY : " + Partitions.size() + " / " + commitments.size() + TEXT_RESET);
         commitments = new ArrayList<>();
     }
@@ -158,13 +161,19 @@ public class IPLS_Comm {
         List<Integer> Responsibilities = new ArrayList<>(Partial_Updates.keySet());
         for(int i = 0; i < Responsibilities.size(); i++){
             try {
-                for(int j = 0; j < PeerData.Replica_holders.get(Responsibilities.get(i)).size(); j++){
-                    Aggregators.add(Base58.decode(PeerData.Replica_holders.get(Responsibilities.get(i)).get(j)));
+                if(!PeerData.fast_sync){
+                    for(int j = 0; j < PeerData.Replica_holders.get(Responsibilities.get(i)).size(); j++){
+                        Aggregators.add(Base58.decode(PeerData.Replica_holders.get(Responsibilities.get(i)).get(j)));
+                    }
+                    PeerData.ds_client.storePartial(Responsibilities.get(i),
+                            Base58.decode(Partial_Updates.get(Responsibilities.get(i))),
+                            Aggregators,
+                            PeerData.middleware_iteration);
                 }
-                PeerData.ds_client.storePartial(Responsibilities.get(i),
-                        Base58.decode(Partial_Updates.get(Responsibilities.get(i))),
-                        Aggregators,
-                        PeerData.middleware_iteration);
+                else{
+                    ipfsClass.send(new Integer(Responsibilities.get(i)).toString(),ipfsClass.Marshall_Packet(Partial_Updates.get(Responsibilities.get(i)),PeerData._ID,Responsibilities.get(i),ipfsClass.find_iter(),(short) 23));
+                }
+
             }catch (Exception e){
                 System.out.println(TEXT_GREEN + "Exception " + e + TEXT_RESET);
             }
@@ -228,6 +237,7 @@ public class IPLS_Comm {
             }
             Acknowledged_Partial_Updates = new HashMap<>();
             Temp_list = new ArrayList<>();
+            Thread.sleep(500);
             Thread.yield();
         }
     }
@@ -254,7 +264,7 @@ public class IPLS_Comm {
             int updates_published = 0;
             List<Integer> Responsibilities = new ArrayList<>(update_hash.keySet());
             List<Pair<Integer,String>> black_list = new ArrayList<>();
-
+            System.out.println(TEXT_GREEN + "Publishing updates ... "+ TEXT_RESET);
             while(ipfsClass.synch_elapse_time(PeerData.middleware_iteration) > ipfsClass.get_curr_time()){
                 // If written all hashes in directory service, return
                 if(Responsibilities.size() == 0){
@@ -264,7 +274,10 @@ public class IPLS_Comm {
 
                 for(int i = 0; i < Responsibilities.size(); i++){
                     // In case a partition stored in the ds write this partition to the DS
+                    //System.out.println("Searching");
                     hash = get_hash(PeerData.Partitions_committed.get(2),new Pair<Integer,Integer>(new Integer(Responsibilities.get(i)),PeerData.middleware_iteration));
+
+                    //System.out.println(hash);
                     if(hash != null){
                         //System.out.println(TEXT_GREEN + "Storing Update : " + Responsibilities.get(i) + TEXT_RESET);
                         black_list.add(new Pair<Integer,String>(Responsibilities.get(i),hash));
@@ -292,7 +305,7 @@ public class IPLS_Comm {
                 black_list = new ArrayList<>();
                 Thread.yield();
                 try {
-                    Thread.sleep(100);
+                    Thread.sleep(300);
                 }catch (Exception e){}
             }
 
@@ -324,11 +337,16 @@ public class IPLS_Comm {
             }
         }
     }
-    public void process_commitment(int Partition, List<String> Cids, String Hash,int Iteration, String Aggregator) throws Exception{
+    public void process_commitment(int Partition, List<String> Cids, String Hash,int Iteration, String Aggregator,int status) throws Exception{
         // This is somehow naive and is going to change in the future
         if((ipfsClass.find_iter() == -1 && Iteration > PeerData.middleware_iteration ) || ( ipfsClass.find_iter() != -1 && Iteration == ipfsClass.find_iter())){
             //PeerData.Committed_Hashes.get(Partition).add(new Triplet<>(Hash,Origin,Iteration));
-            PeerData.aggregation_download_scheduler.add_merge(new Quintet(Hash,Cids,Iteration,Partition,Aggregator));
+            if(status == 0){
+                PeerData.aggregation_download_scheduler.add_merge(new Quintet(Hash,Cids,Iteration,Partition,Aggregator));
+            }
+            else{
+                PeerData.partial_updates_download_scheduler.add_merge(new Quintet(Hash,Cids,Iteration,Partition,Aggregator));
+            }
         }
 
     }

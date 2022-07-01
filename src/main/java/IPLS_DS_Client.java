@@ -2,6 +2,7 @@ import java.io.BufferedReader;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.net.*;
 import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.concurrent.LinkedBlockingDeque;
@@ -18,6 +19,7 @@ public class IPLS_DS_Client extends Thread{
     int curRound;
     Sub replySub;
     String myId, dsId;
+    String IP;
     BlockingQueue<String> msgQueue;
     List<BlockingQueue<String>> Queues;
 
@@ -36,6 +38,130 @@ public class IPLS_DS_Client extends Thread{
         replySub = new Sub(myId + "_DS", PeerData.Path,
                            msgQueue, true);
         replySub.start();
+        IP = "10.0.0.1";
+    }
+
+
+
+    public String udp_send(String msg) throws Exception {
+        DatagramSocket socket = new DatagramSocket();
+        byte[] buf = msg.getBytes();
+        byte[] recv_buf = new byte[32768];
+        //System.out.println(buf.length);
+        DatagramPacket packet
+                = new DatagramPacket(buf, buf.length, InetAddress.getByName(IP), 5555);
+
+        socket.send(packet);
+
+        //System.out.println(socket.getLocalPort() + " , " + socket.getPort() + " , " + buf.length);
+        DatagramPacket recvpacket = new DatagramPacket(recv_buf, recv_buf.length);
+        //System.out.println(buf.length);
+        socket.setSoTimeout(500);   // set the timeout in millisecounds.
+
+        while(true){        // recieve data until timeout
+            try {
+                //System.out.println("Receiving");
+                socket.receive(recvpacket);
+                //System.out.println(packet.getLength());
+                socket.close();
+                return new String(recvpacket.getData(), 0, recvpacket.getLength());
+            }
+            catch (SocketTimeoutException e) {
+                // timeout exception.
+                //System.out.println("Timeout reached!!! " + e);
+                //socket.close();
+                socket.send(packet);
+                socket.setSoTimeout(2000);
+                //socket.close();
+            }
+        }
+    }
+
+    public void test_storeGradients(List<byte[]> aggregators,
+                               List<Integer> partitions,
+                               List<byte[]> hashes,
+                               int iter, String id) throws Exception {
+        ByteBuffer storeRequest;
+        int reqSize;
+
+        reqSize = 1 + Integer.BYTES + Integer.BYTES + myId.getBytes().length + Integer.BYTES;
+
+        // Upload the gradients into IPFS and get the hashes
+        for (int i = 0 ; i < partitions.size() ; i++) {
+            // Update the request size
+            reqSize += Integer.BYTES;
+            reqSize += aggregators.get(i).length;
+            reqSize += Integer.BYTES;
+            reqSize += Integer.BYTES;
+            reqSize += hashes.get(i).length;
+        }
+
+        // Build the message
+        storeRequest = ByteBuffer.allocate(reqSize);
+
+        storeRequest.put(MessageCodes.STORE_GRADIENT);
+
+        storeRequest.putInt(iter);
+
+        storeRequest.putInt(id.getBytes().length);
+        storeRequest.put(id.getBytes());
+
+        storeRequest.putInt(partitions.size());
+        for (int i = 0 ; i < partitions.size() ; i++) {
+            storeRequest.putInt(aggregators.get(i).length);
+            storeRequest.put(aggregators.get(i));
+            storeRequest.putInt(partitions.get(i));
+            storeRequest.putInt(hashes.get(i).length);
+            storeRequest.put(hashes.get(i));
+        }
+        Base64.Decoder dec = Base64.getUrlDecoder();
+        String encoded = null;
+        ByteBuffer reply = null;
+        if(PeerData.DS_udp_comm){
+            long start = System.currentTimeMillis();
+            encoded = udp_send( Base64.getUrlEncoder().encodeToString(storeRequest.array()));
+            long end = System.currentTimeMillis();
+            System.out.println(end-start);
+        }
+        else{
+            // Send the hash and wait for the reply
+            ipfs.pubsub.pub("IPLSDS", Base64.getUrlEncoder().encodeToString(storeRequest.array()));
+            Thread.sleep(100);
+            //System.out.println("GRADIENTS SENT");
+        }
+        // Wait until you get the reply
+        do {
+            if(PeerData.DS_udp_comm){
+                reply = ByteBuffer.wrap(dec.decode(encoded));
+            }
+            else{
+                JSONObject jobj = new JSONObject(Queues.get(new Integer(MessageCodes.STORE_GRADIENT/2)).take());
+                encoded = (String) jobj.get("data");
+                reply = ByteBuffer.wrap(dec.decode(dec.decode(encoded)));
+            }
+            //System.out.println("ACK");
+            reply.get();
+            byte code = reply.get();
+            if (code == MessageCodes.ROUND_MISMATCH) {
+                int correctRound = reply.getInt();
+                if (correctRound > iter)
+                    throw new RoundMismatchException("round mismatch", correctRound);
+                else {
+                    System.out.println("Lower DS roundnum");
+                    continue;
+                }
+            }
+            else if (code != MessageCodes.STORE_GRADIENT_REPLY)
+                continue;
+
+            int roundNum = reply.getInt();
+            if (roundNum == iter)
+                break;
+
+            //System.out.println(roundNum);
+            Thread.yield();
+            System.out.println("WRONG ROUND");
+        } while (true);
     }
 
     public void storeGradients(List<byte[]> aggregators,
@@ -75,18 +201,31 @@ public class IPLS_DS_Client extends Thread{
             storeRequest.putInt(hashes.get(i).length);
             storeRequest.put(hashes.get(i));
         }
-
-        // Send the hash and wait for the reply
-        ipfs.pubsub.pub("IPLSDS", Base64.getUrlEncoder().encodeToString(storeRequest.array()));
-
-        //System.out.println("GRADIENTS SENT");
-
+        Base64.Decoder dec = Base64.getUrlDecoder();
+        String encoded = null;
+        ByteBuffer reply = null;
+        if(PeerData.DS_udp_comm){
+            long start = System.currentTimeMillis();
+            encoded = udp_send( Base64.getUrlEncoder().encodeToString(storeRequest.array()));
+            long end = System.currentTimeMillis();
+            System.out.println(end-start);
+        }
+        else{
+            // Send the hash and wait for the reply
+            ipfs.pubsub.pub("IPLSDS", Base64.getUrlEncoder().encodeToString(storeRequest.array()));
+            Thread.sleep(100);
+            //System.out.println("GRADIENTS SENT");
+        }
         // Wait until you get the reply
         do {
-            JSONObject jobj = new JSONObject(Queues.get(new Integer(MessageCodes.STORE_GRADIENT/2)).take());
-            String encoded = (String) jobj.get("data");
-            Base64.Decoder dec = Base64.getUrlDecoder();
-            ByteBuffer reply = ByteBuffer.wrap(dec.decode(dec.decode(encoded)));
+            if(PeerData.DS_udp_comm){
+                reply = ByteBuffer.wrap(dec.decode(encoded));
+            }
+            else{
+                JSONObject jobj = new JSONObject(Queues.get(new Integer(MessageCodes.STORE_GRADIENT/2)).take());
+                encoded = (String) jobj.get("data");
+                reply = ByteBuffer.wrap(dec.decode(dec.decode(encoded)));
+            }
             //System.out.println("ACK");
             reply.get();
             byte code = reply.get();
@@ -107,7 +246,7 @@ public class IPLS_DS_Client extends Thread{
                 break;
 
             //System.out.println(roundNum);
-
+            Thread.yield();
             System.out.println("WRONG ROUND");
         } while (true);
     }
@@ -198,17 +337,18 @@ public class IPLS_DS_Client extends Thread{
                                                                          int iter)
             throws Exception {
         Map<Integer, List<Pair<byte[], byte[]>>> hashes = new HashMap<>();
-        ByteBuffer getRequest;
+        ByteBuffer getRequest = null;
         int reqSize, len, hashNum;
         byte[] senderId, hash;
         byte code;
         int recvPartition;
+        String encoded = null;
+
         Set<Integer> recvPartitions = new HashSet<>();
 
         // Set a GET-GRADIENTS request for every partition
         for (int p : partitions) {
             reqSize = 1 + Integer.BYTES + Integer.BYTES + myId.getBytes().length + Integer.BYTES;
-
             getRequest = ByteBuffer.allocate(reqSize);
 
             getRequest.put(reqCode);
@@ -218,17 +358,75 @@ public class IPLS_DS_Client extends Thread{
             getRequest.putInt(myId.getBytes().length);
             getRequest.put(myId.getBytes());
             getRequest.putInt(p);
+            if (!PeerData.DS_udp_comm) {
+                ipfs.pubsub.pub("IPLSDS", Base64.getUrlEncoder().encodeToString(getRequest.array()));
+            }
+            else {
+                while(true){
+                    encoded = udp_send(Base64.getUrlEncoder().encodeToString(getRequest.array()));
+                    Base64.Decoder dec = Base64.getUrlDecoder();
+                    ByteBuffer reply = ByteBuffer.wrap(dec.decode(encoded));
+                    //System.out.println(reply.remaining());
+                    reply.get();
+                    code = reply.get();
+                    if (code == MessageCodes.ROUND_MISMATCH) {
+                        int correctRound = reply.getInt();
+                        if (correctRound > iter)
+                            throw new RoundMismatchException("round mismatch", correctRound);
+                        else {
+                            System.out.println("Lower DS roundnum");
+                            continue;
+                        }
+                    } else if (code != replyCode)
+                        continue;
 
-            ipfs.pubsub.pub("IPLSDS", Base64.getUrlEncoder().encodeToString(getRequest.array()));
+                    int roundNum = reply.getInt();
+                    if (roundNum != iter) {
+                        System.out.println("WRONG ROUND");
+                        continue;
+                    }
+
+                    recvPartition = reply.getInt();
+
+                    hashNum = reply.getInt();
+                    //System.out.println("Number of hashes : " + hashNum);
+                    if (hashNum == 0) {
+                        hashes.put(recvPartition, null);
+                    } else {
+
+                        hashes.put(recvPartition, new ArrayList<>());
+
+                        for (int i = 0; i < hashNum; i++) {
+                            len = reply.getInt();
+                            senderId = new byte[len];
+                            reply.get(senderId);
+
+                            len = reply.getInt();
+                            hash = new byte[len];
+                            reply.get(hash);
+
+                            hashes.get(recvPartition).add(new Pair<>(senderId, hash));
+                        }
+                    }
+                    if (hashNum == 200) {
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+            }
         }
-
+        if(PeerData.DS_udp_comm){
+            return hashes;
+        }
         // Wait until you get a reply for every partition
         do {
-            JSONObject jobj = new JSONObject(Queues.get(new Integer(reqCode/2)).take());
-            String encoded = (String) jobj.get("data");
+            if(!PeerData.DS_udp_comm) {
+                JSONObject jobj = new JSONObject(Queues.get(new Integer(reqCode / 2)).take());
+                encoded = (String) jobj.get("data");
+            }
             Base64.Decoder dec = Base64.getUrlDecoder();
             ByteBuffer reply = ByteBuffer.wrap(dec.decode(dec.decode(encoded)));
-
             //System.out.println("GOT REPLY");
 
             reply.get();
@@ -276,7 +474,6 @@ public class IPLS_DS_Client extends Thread{
             }
             recvPartitions.add(recvPartition);
         } while(!recvPartitions.equals(partitions));
-
         return hashes;
     }
     /*
@@ -428,16 +625,31 @@ public class IPLS_DS_Client extends Thread{
             storeRequest.put(recipient);
         }
 
-        // Send the hash to the directory service
-        ipfs.pubsub.pub("IPLSDS", Base64.getUrlEncoder().encodeToString(storeRequest.array()));
+        Base64.Decoder dec = Base64.getUrlDecoder();
+        String encoded = null;
+        ByteBuffer reply = null;
+        if(PeerData.DS_udp_comm){
+            encoded = udp_send( Base64.getUrlEncoder().encodeToString(storeRequest.array()));
+        }
+        else{
+            // Send the hash and wait for the reply
+            ipfs.pubsub.pub("IPLSDS", Base64.getUrlEncoder().encodeToString(storeRequest.array()));
+            Thread.sleep(100);
+            //System.out.println("GRADIENTS SENT");
+        }
 
-        // Wait until you get the reply
         do {
-            JSONObject jobj = new JSONObject(Queues.get(new Integer(reqCode/2)).take());
-            String encoded = (String) jobj.get("data");
-            Base64.Decoder dec = Base64.getUrlDecoder();
-            ByteBuffer reply = ByteBuffer.wrap(dec.decode(dec.decode(encoded)));
+            if(PeerData.DS_udp_comm){
+                reply = ByteBuffer.wrap(dec.decode(encoded));
+            }
+            else{
+
+                JSONObject jobj = new JSONObject(Queues.get(new Integer(reqCode/2)).take());
+                encoded = (String) jobj.get("data");
+                reply = ByteBuffer.wrap(dec.decode(dec.decode(encoded)));
+            }
             reply.get();
+            System.out.println("ACK");
             byte code = reply.get();
             if (code == MessageCodes.ROUND_MISMATCH) {
                 int correctRound = reply.getInt();
@@ -445,17 +657,18 @@ public class IPLS_DS_Client extends Thread{
                     throw new RoundMismatchException("round mismatch", correctRound);
                 else {
                     System.out.println("Lower DS roundnum");
-                    continue;
+                    break;
                 }
             }
             else if (code != replyCode)
                 continue;
 
             int roundNum = reply.getInt();
-            if (roundNum == iter)
+            if (roundNum >= iter)
                 break;
 
             System.out.println("WRONG ROUND");
+            break;
         } while (true);
     }
     /*

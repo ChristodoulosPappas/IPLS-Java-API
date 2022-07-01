@@ -1,3 +1,4 @@
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -7,17 +8,24 @@ import io.ipfs.api.*;
 import io.ipfs.multibase.Base58;
 //import org.jetbrains.annotations.NotNull;
 //import org.jetbrains.annotations.Nullable;
+import org.javatuples.Triplet;
 import org.json.JSONObject;
+import org.web3j.abi.datatypes.Int;
 
 public class IPLS_DS extends Thread{
     private Map<String, Map<String, Pair<Integer, String>>> updateHashes;
     private Map<Pair<String, Integer>, Map<String, String>> gradientHashes , stored_gradient_Hashes , partialHashes, stored_partial_Hashes;
     private Sub sub;
-    private Map<Integer, org.javatuples.Pair<String,String>> Updates;
+    private Map<Integer, org.javatuples.Pair<String,String>> Updates = new HashMap<>();
     private BlockingQueue<String> msgQueue;
+    private BlockingQueue<Triplet<String,String,Integer>> udpQueue;
     private IPFS ipfs;
+    DS_receiver rcv;
+    String IP;
+    int port;
     int curRound;
     boolean isDestructiveGet;
+    boolean BatchReply = true;
 
     public IPLS_DS(String address, boolean isDestructiveGet) {
         updateHashes = new HashMap<>();
@@ -30,17 +38,27 @@ public class IPLS_DS extends Thread{
         this.isDestructiveGet = isDestructiveGet;
 
         msgQueue = new LinkedBlockingQueue<>();
+        udpQueue = new LinkedBlockingQueue<>();
         try {
             ipfs = new IPFS(address);
-            sub = new Sub("IPLSDS", address,
-                          msgQueue, true);
-            sub.start();
+            if(PeerData.DS_udp_comm){
+                rcv = new DS_receiver(udpQueue);
+                rcv.start();
+            }
+            else{
+                sub = new Sub("IPLSDS", address,
+                        msgQueue, true);
+                sub.start();
+            }
         }
         catch (Exception e) {
             System.out.println(e.getMessage());
             System.exit(1);
         }
     }
+
+
+
 
     public void set_round(int round){
         curRound = round;
@@ -141,6 +159,7 @@ public class IPLS_DS extends Thread{
     }
 
     private <K, V> List<Pair<String, V>> getHashes(Map<K, Map<String, V>> hashStorage, K key) {
+        int i = 0;
         List<Pair<String, V>> hashes = new ArrayList<>();
 
         // Check if any updates for this node exist
@@ -149,10 +168,25 @@ public class IPLS_DS extends Thread{
         }
 
         for (Map.Entry<String, V> e : hashStorage.get(key).entrySet()) {
+            // In case there are more than 200 commitmnents then send only a batch of them
+            if(BatchReply ){
+                if(i == 200){
+                    break;
+                }
+                i++;
+            }
             hashes.add(new Pair<String, V>(e.getKey(), e.getValue()));
         }
+        if(i < 200){
+            hashStorage.get(key).clear();
+        }
+        else{
+            for(i = 0; i < hashes.size(); i++){
 
-        hashStorage.get(key).clear();
+                hashStorage.get(key).remove(hashes.get(i).left);
+            }
+            System.out.println(hashStorage.get(key).size());
+        }
         //if (isDestructiveGet) {
          //   hashStorage.get(key).clear();
         //}
@@ -181,11 +215,22 @@ public class IPLS_DS extends Thread{
     }
 
     public byte[] getRequest() throws InterruptedException {
-        JSONObject jobj = new JSONObject(msgQueue.take());
-        String encoded = (String) jobj.get("data");
+        String encoded = null;
         Base64.Decoder dec = Base64.getUrlDecoder();
 
-        return dec.decode(dec.decode(encoded));
+        if(PeerData.DS_udp_comm){
+            Triplet<String,String,Integer> triplet = udpQueue.take();
+
+            encoded = triplet.getValue0();
+            IP =  triplet.getValue1();
+            port =  triplet.getValue2();
+            return dec.decode(encoded);
+        }
+        else{
+            JSONObject jobj = new JSONObject(msgQueue.take());
+            encoded = (String) jobj.get("data");
+            return dec.decode(dec.decode(encoded));
+        }
     }
 
     public void sendStoreReply(String clientId,byte Task, byte code, String debugMsg) throws Exception {
@@ -195,7 +240,12 @@ public class IPLS_DS extends Thread{
         reply.put(code);
         reply.putInt(curRound);
 
-        ipfs.pubsub.pub(clientId+ "_DS", Base64.getUrlEncoder().encodeToString(reply.array()));
+        if(PeerData.DS_udp_comm){
+            rcv.reply(Base64.getUrlEncoder().encodeToString(reply.array()),IP,port);
+        }
+        else{
+            ipfs.pubsub.pub(clientId+ "_DS", Base64.getUrlEncoder().encodeToString(reply.array()));
+        }
         //System.out.println(debugMsg);
     }
 
@@ -258,8 +308,12 @@ public class IPLS_DS extends Thread{
             reply.putInt(curRound);
             reply.putInt(0);
         }
-
-        ipfs.pubsub.pub(clientId+ "_DS", Base64.getUrlEncoder().encodeToString(reply.array()));
+        if(PeerData.DS_udp_comm){
+            rcv.reply(Base64.getUrlEncoder().encodeToString(reply.array()),IP,port);
+        }
+        else{
+            ipfs.pubsub.pub(clientId + "_DS", Base64.getUrlEncoder().encodeToString(reply.array()));
+        }
     }
 
     public void sendGetUpdatesReply(String clientId,
@@ -309,7 +363,12 @@ public class IPLS_DS extends Thread{
             reply.putInt(0);
         }
 
-        ipfs.pubsub.pub(clientId+ "_DS", Base64.getUrlEncoder().encodeToString(reply.array()));
+        if(PeerData.DS_udp_comm){
+            rcv.reply(Base64.getUrlEncoder().encodeToString(reply.array()),IP,port);
+        }
+        else{
+            ipfs.pubsub.pub(clientId + "_DS", Base64.getUrlEncoder().encodeToString(reply.array()));
+        }
     }
 
     private void sendGetPartHashesReply(String clientId, List<Pair<String, String>> hashes,
@@ -362,8 +421,15 @@ public class IPLS_DS extends Thread{
             reply.putInt(partition);
             reply.putInt(0);
         }
+        if(PeerData.DS_udp_comm){
+            System.out.println(reply.array().length);
+            rcv.reply(Base64.getUrlEncoder().encodeToString(reply.array()),IP,port);
+        }
+        else{
+            System.out.println("SENDING REPLY!!!!");
+            ipfs.pubsub.pub(clientId + "_DS", Base64.getUrlEncoder().encodeToString(reply.array()));
+        }
 
-        ipfs.pubsub.pub(clientId+ "_DS", Base64.getUrlEncoder().encodeToString(reply.array()));
     }
 
     private void sendGetPartHashesReply(String clientId, List<Pair<String, String>> hashes,
@@ -414,8 +480,12 @@ public class IPLS_DS extends Thread{
             reply.putInt(partition);
             reply.putInt(0);
         }
-
-        ipfs.pubsub.pub(clientId+ "_DS", Base64.getUrlEncoder().encodeToString(reply.array()));
+        if(PeerData.DS_udp_comm){
+            rcv.reply(Base64.getUrlEncoder().encodeToString(reply.array()),IP,port);
+        }
+        else{
+            ipfs.pubsub.pub(clientId + "_DS", Base64.getUrlEncoder().encodeToString(reply.array()));
+        }
     }
     public void sendGetGradientsReply(String clientId,
                                       List<Pair<String, String>> gradients,
@@ -489,8 +559,12 @@ public class IPLS_DS extends Thread{
         reply.put(Task);
         reply.put(MessageCodes.ROUND_MISMATCH);
         reply.putInt(curRound);
-
-        ipfs.pubsub.pub(clientId + "_DS", Base64.getUrlEncoder().encodeToString(reply.array()));
+        if(PeerData.DS_udp_comm){
+            rcv.reply(Base64.getUrlEncoder().encodeToString(reply.array()),IP,port);
+        }
+        else{
+            ipfs.pubsub.pub(clientId + "_DS", Base64.getUrlEncoder().encodeToString(reply.array()));
+        }
     }
 
     public void handleRoundMismatch(String clientId) throws Exception {
@@ -501,21 +575,29 @@ public class IPLS_DS extends Thread{
         reply = ByteBuffer.allocate(1 + Integer.BYTES);
         reply.put(MessageCodes.ROUND_MISMATCH);
         reply.putInt(curRound);
-
-        ipfs.pubsub.pub(clientId + "_DS", Base64.getUrlEncoder().encodeToString(reply.array()));
+        if(PeerData.DS_udp_comm){
+            rcv.reply(Base64.getUrlEncoder().encodeToString(reply.array()),IP,port);
+        }
+        else{
+            ipfs.pubsub.pub(clientId + "_DS", Base64.getUrlEncoder().encodeToString(reply.array()));
+        }
     }
 
     public void run() {
         //IPLS_DS iplsds = new IPLS_DS(5002, 1, true);
         ByteBuffer request;
+        int writes = 0;
+
         int partition;
         int len;
         byte code;
         byte[] hash;
         byte[] clientId;
         int roundNum;
+        long start;
         try{
             do {
+                start = System.currentTimeMillis();
                 request = ByteBuffer.wrap(getRequest());
 
 
@@ -525,13 +607,14 @@ public class IPLS_DS extends Thread{
                 switch (code) {
                     // Store Updates
                     case MessageCodes.STORE_UPDATE:
+
                         // Deserialize the STORE-UPDATES message
                         roundNum = request.getInt();
 
                         len = request.getInt();
                         clientId = new byte[len];
                         request.get(clientId);
-
+                        System.out.println("Got update " + new Long(System.currentTimeMillis() - start) + " , " + Instant.now().getEpochSecond() + " , "  + roundNum + " , " + getCurRound());
                         if (roundNum != getCurRound()) {
                             //handleRoundMismatch(new String(clientId));
                             handleRoundMismatch(new String(clientId),MessageCodes.STORE_UPDATE);
@@ -559,6 +642,8 @@ public class IPLS_DS extends Thread{
                         storeUpdates(clientId, participants, partition, hash);
                         //sendStoreReply(new String(clientId), MessageCodes.STORE_UPDATE_REPLY,
                         //        "SENT STORE UPDATE REPLY");
+
+
                         sendStoreReply(new String(clientId), MessageCodes.STORE_UPDATE,MessageCodes.STORE_UPDATE_REPLY,
                                 "SENT STORE UPDATE REPLY");
                         break;
@@ -584,15 +669,19 @@ public class IPLS_DS extends Thread{
 
                         break;
                     case MessageCodes.STORE_GRADIENT:
+                        writes++;
+                        //System.out.println(writes);
+                        //System.out.println("Got gradient " + new Long(System.currentTimeMillis() - start));
                         // Deserialize the STORE-GRADIENTS message
                         roundNum = request.getInt();
-
+                        //System.out.println(roundNum);
                         len = request.getInt();
                         clientId = new byte[len];
                         request.get(clientId);
 
                         if (roundNum != getCurRound()) {
                             //handleRoundMismatch(new String(clientId));
+                            System.out.println("ROUND MISMATCH");
                             handleRoundMismatch(new String(clientId),MessageCodes.STORE_GRADIENT);
                             continue;
                         }
@@ -602,7 +691,7 @@ public class IPLS_DS extends Thread{
                         List<Integer> partitions = new ArrayList<>();
                         List<byte[]> hashes = new ArrayList<>();
                         byte[] aggregator;
-
+                        //System.out.println("Gradnum : " + gradNum);
                         for (int i = 0; i < gradNum; i++) {
                             len = request.getInt();
                             aggregator = new byte[len];
@@ -611,14 +700,17 @@ public class IPLS_DS extends Thread{
 
                             partition = request.getInt();
                             partitions.add(partition);
-
+                            //System.out.println("Aggregator : " + new String(aggregator) + " , " + partition);
                             len = request.getInt();
                             hash = new byte[len];
                             request.get(hash);
                             hashes.add(hash);
                         }
+                        long stime = System.currentTimeMillis();
 
                         storeGradients(clientId, aggregators, partitions, hashes);
+                        long end = System.currentTimeMillis();
+                        System.out.println("Insert time : " + new Long(end-stime)  + " , " + writes);
                         //sendStoreReply(new String(clientId), MessageCodes.STORE_GRADIENT_REPLY,
                          //       "SENT STORE GRADIENTS REPLY");
                         sendStoreReply(new String(clientId), MessageCodes.STORE_GRADIENT,  MessageCodes.STORE_GRADIENT_REPLY,
@@ -646,7 +738,7 @@ public class IPLS_DS extends Thread{
                         sendGetGradientsReply(new String(clientId), gradients, partition,MessageCodes.GET_GRADIENT );
                         break;
                     case MessageCodes.STORE_PARTIAL:
-
+                        System.out.println("Got partial");
                         // Deserialize the store partials message
                         roundNum = request.getInt();
 

@@ -42,7 +42,9 @@ public class Updater extends Thread{
                     for( i = 0; i < PeerData.Aggregated_Gradients.get(Partiton).length && Gradient != null; i++){
                         PeerData.Replicas_Gradients.get(Partiton)[i] +=  Gradient[i];
                     }
-                    PeerData.Replica_Wait_Ack.remove(new Triplet<>(Origin.get(0),Partiton,iteration));
+                    for( i = 0; i < Origin.size(); i++){
+                        PeerData.Replica_Wait_Ack.remove(new Triplet<>(Origin.get(i),Partiton,iteration));
+                    }
                 }
                 else if(((PeerData.Replica_holders.get(Partiton).contains(Origin) && iteration > PeerData.middleware_iteration) || (PeerData.New_Replicas.get(Partiton).contains(Origin) && iteration > PeerData.middleware_iteration)) && Gradient != null){
                     // Do something for replica holders only. Aggregate in future buffer
@@ -56,6 +58,7 @@ public class Updater extends Thread{
                     PeerData.Weights.get(Partiton)[i] =  0.75*PeerData.Weights.get(Partiton)[i] + Gradient[i];
                 }
             }
+            System.out.println("Remaining R : " + PeerData.Replica_Wait_Ack.size());
             return;
         }
         //Aggregate weights from a leaving peer
@@ -144,7 +147,7 @@ public class Updater extends Thread{
 
             //}
             PeerData.mtx.release();
-
+            System.out.println("Remaining : " + PeerData.Client_Wait_Ack.size());
         }
     }
 
@@ -156,10 +159,10 @@ public class Updater extends Thread{
         String Hash;
         boolean from_clients;
         double[] Gradient;
-        double[] Gradient_Buff = new double[(int)PeerData._MODEL_SIZE/PeerData._PARTITIONS + 1];
+        double[] Gradient_Buff = new double[(int)PeerData._MODEL_SIZE/PeerData._PARTITIONS + 2];
         List<String> PeerId;
         Sextet<List<String>,Integer,Integer,Boolean, double[],String> request;
-        for(int i = 0; i < PeerData._MODEL_SIZE/PeerData._PARTITIONS + 1; i++){
+        for(int i = 0; i < PeerData._MODEL_SIZE/PeerData._PARTITIONS + 2; i++){
             Gradient_Buff[i] = 0.0;
         }
         try {

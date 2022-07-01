@@ -12,5 +12,7 @@ public class Constants {
         public static final byte SendPartitionReply = 18;
         public static final byte WantPartition = 3;
         public static final byte PartitionReply = 4;
+        public static final byte Replication_Request = 6;
+        public static final byte ReplicationReply = 7;
     }
 }

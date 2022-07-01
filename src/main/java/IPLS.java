@@ -12,6 +12,7 @@ import java.util.*;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Stream;
 
 import org.javatuples.Pair;
@@ -451,6 +452,9 @@ class ThreadReceiver extends Thread{
             // Get Update message
             else if(Topic.equals(_ID) && (pid == 3 || pid == 23 || pid == 33) ){
                 //String: Origin Peer , Integer : Partition, List<Double> : Gradients
+                if(PeerData.Start_download_time == 0 && !PeerData.Indirect_Communication){
+                    PeerData.Start_download_time = System.currentTimeMillis();
+                }
                 if(pid == 3){
                     Quartet<String,Integer,Integer,double[]> quartet = AuxilaryIpfs.GET_GRADIENTS(rbuff,bytes_array);
                     PeerData.downloaded_hashes++;
@@ -592,7 +596,7 @@ class ThreadReceiver extends Thread{
                     else{
                         Peers.add(PeerData.Schedule_Hash);
                     }
-                    AuxilaryIpfs.send(Client.get(0),AuxilaryIpfs.Marshall_Packet(Peers,true));
+                    AuxilaryIpfs.send(Client.get(0),AuxilaryIpfs.Marshall_Packet(Peers,true,(short) 7));
 
                 }
                 else if(is_reply == 1){
@@ -636,9 +640,9 @@ class ThreadReceiver extends Thread{
             }
             else if(Topic.equals(_ID) && pid == 19){
                 Quintet<Short,String,Integer,Integer,List<String>> ReplyQuintet = AuxilaryIpfs.Merge_response(rbuff,bytes_array);
-                if((int)ReplyQuintet.getValue0() == 0){
+                if((int)ReplyQuintet.getValue0() != 1){
                     String Hash = ReplyQuintet.getValue4().get(0);
-                    commit.process_commitment(ReplyQuintet.getValue2(),ReplyQuintet.getValue4(),Hash,ReplyQuintet.getValue3(),ReplyQuintet.getValue1());
+                    commit.process_commitment(ReplyQuintet.getValue2(),ReplyQuintet.getValue4(),Hash,ReplyQuintet.getValue3(),ReplyQuintet.getValue1(),(int)ReplyQuintet.getValue0());
                 }
                 else{
 
@@ -655,6 +659,10 @@ class ThreadReceiver extends Thread{
                     Hashes.add(0,Hash);
                     AuxilaryIpfs.send(ReplyQuintet.getValue1(),AuxilaryIpfs.Marshall_Packet((short)0,ReplyQuintet.getValue2(),ReplyQuintet.getValue3(),ReplyQuintet.getValue1(),Hashes));
                 }
+            }
+            else if(Topic.equals(_ID) && pid == 56){
+                List<String> Store_Inform = AuxilaryIpfs.Get_Prov(rbuff,bytes_array);
+                PeerData.Providers_Map.put(Store_Inform.get(0),Store_Inform.get(1));
             }
 
         }
@@ -738,13 +746,18 @@ class ThreadReceiver extends Thread{
                 PeerId = AuxilaryIpfs.Get_Peer(rbuff,bytes_array,Short.BYTES);
                 if(!PeerData.Members.contains(PeerId) && PeerData.isBootsraper){
                     PeerData.Members.add(PeerId);
+                    System.out.println("Adding member " + PeerData.Members.size());
                     if(PeerData.training_phase){
                         AuxilaryIpfs.send(PeerId,AuxilaryIpfs._START_TRAINING());
                     }
                     else if(PeerData.Members.size() ==  PeerData.Min_Members){
+                        String[] Storage_nodes = PeerData.storage_client.get_Storage_View();
+                        AuxilaryIpfs.update_file("Storage_View",Storage_nodes);
+                        Multihash Hash = AuxilaryIpfs.add_file("Storage_View");
+                        System.out.println("Storage View : " + Storage_nodes);
                         PeerData.training_phase = true;
                         if(schedule_daemon == null){
-                            schedule_daemon = new Bootstraper_Services(PeerData.Path,"Scheduler",5,PeerData.Training_time,13,10);
+                            schedule_daemon = new Bootstraper_Services(PeerData.Path,"Scheduler",10,PeerData.Training_time,60,120,Hash.toString());
                             schedule_daemon.start();
                         }
                         for(i = 0; i < PeerData.Members.size(); i++){
@@ -765,8 +778,10 @@ class ThreadReceiver extends Thread{
             else if(pid == 15){
                 // data_hash -> (Partition ID, data hash, Origin id)
                 Triplet<Integer,String,String> data_hash = AuxilaryIpfs.Get_data_hash(rbuff,bytes_array);
-                AuxilaryIpfs.download_schedule(data_hash.getValue1());
-                PeerData.dlog.log("DOWNLOADING SCHEDULE");
+                if(!PeerData.isBootsraper){
+                    AuxilaryIpfs.download_schedule(data_hash.getValue1());
+                    PeerData.dlog.log("DOWNLOADING SCHEDULE");
+                }
 
             }
             else if(pid == 24){
@@ -1007,14 +1022,17 @@ public class IPLS {
         for(i = 0; i < PeerData._PARTITIONS; i++){
             double[] Gradient_Partition;
             if((i+1)*chunk_size > PeerData._MODEL_SIZE){
-                Gradient_Partition = new double[(int)PeerData._MODEL_SIZE - i*chunk_size];
+                Gradient_Partition = new double[(int)PeerData._MODEL_SIZE - i*chunk_size  +1];
             }
             else{
-                Gradient_Partition = new double[chunk_size];
+                Gradient_Partition = new double[chunk_size + 1];
             }
             for(j = i*chunk_size; j < (i+1)*chunk_size && j < Gradients.size(); j++){
                 Gradient_Partition[j-i*chunk_size] = Gradients.get(j);
             }
+
+            Gradient_Partition[j-i*chunk_size] = 1;
+
             Partition.put(i,Gradient_Partition);
         }
         return Partition;
@@ -1120,7 +1138,7 @@ public class IPLS {
 
         // Check if Updated Partition already does not exist locally
         for(i = 0; i < PeerData._PARTITIONS; i++){
-                PeerData.Weights.put(i,PeerData.Weight_Address.get(i));
+            PeerData.Weights.put(i,PeerData.Weight_Address.get(i));
         }
         if(PeerData.First_Iter){
             PeerData.dlog.log("UPDATES DOWNLOADED : " + PeerData.downloaded_updates + "/" + new Integer(PeerData._PARTITIONS ));
@@ -1140,8 +1158,18 @@ public class IPLS {
 
         // Create a parameter vector
         for(i = 0; i < PeerData._PARTITIONS; i++){
-            for(j = 0; j < PeerData.Weights.get(i).length; j++){
-                Parameters.add(PeerData.Weights.get(i)[j]);
+            for(j = 0; j < PeerData.Weights.get(i).length - 1; j++){
+                if(PeerData.Weights.get(i)[PeerData.Weights.get(i).length-1] == 0.0){
+                    Parameters.add(PeerData.Weights.get(i)[j]);
+                }
+                else{
+                    if(PeerData.secure_ipls){
+                        Parameters.add(PeerData.Weights.get(i)[j]/(Math.pow(10,12)*PeerData.Weights.get(i)[PeerData.Weights.get(i).length-1]));
+                    }
+                    else{
+                        Parameters.add(PeerData.Weights.get(i)[j]/PeerData.Weights.get(i)[PeerData.Weights.get(i).length-1]);
+                    }
+                }
             }
         }
 
@@ -1225,8 +1253,16 @@ public class IPLS {
             PeerData.Participants.replace(Partition,PeerData.workers.get(Partition).size()  +  PeerData.Participants.get(Partition));
         }
         for(int i = 0; i < PeerData.Weights.get(Partition).length; i++) {
-            PeerData.Weights.get(Partition)[i] = (PeerData.Aggregated_Gradients.get(Partition)[i] + PeerData.Replicas_Gradients.get(Partition)[i])/(PeerData.Participants.get(Partition));
-            PeerData.Weight_Address.get(Partition)[i] = PeerData.Weights.get(Partition)[i];
+            PeerData.Weights.get(Partition)[i] = (PeerData.Aggregated_Gradients.get(Partition)[i] + PeerData.Replicas_Gradients.get(Partition)[i]);
+        }
+        System.out.println("Cardinarity : " + PeerData.Weights.get(Partition)[PeerData.Weights.get(Partition).length-1]);
+        for(int i = 0; i < PeerData.Weight_Address.get(Partition).length; i++){
+            if(PeerData.secure_ipls){
+
+            }
+            else{
+                PeerData.Weight_Address.get(Partition)[i] = PeerData.Weights.get(Partition)[i];
+            }
             // Upon aggregation initialize the aggregated gradients and the replicas gradients so that
             // it can be used in the next IPLS round
             PeerData.Aggregated_Gradients.get(Partition)[i] = 0.0;
@@ -1312,10 +1348,10 @@ public class IPLS {
     }
 
     public void SendGradients(List<Integer> Partitions,Map<Integer,double[]> GradientPartitions) throws Exception {
-        int _Start_time = 0;
+        long _Start_time = 0;
         PeerData.SendMtx.acquire();
        // PeerData.mtx.acquire();
-        _Start_time = ipfsClass.get_curr_time();
+        _Start_time = System.currentTimeMillis();
         for(int i = 0; i < Partitions.size(); i++){
             //In case where there is no peer available do something
             if(PeerData.Partition_Availability.get(Partitions.get(i)).size() != 0){
@@ -1342,12 +1378,14 @@ public class IPLS {
         if(PeerData.IPNS_Enable){
             ipfsClass.publish_gradients(PeerData.GradientPartitions,2);
         }
-
+        System.out.println("SENDED DATA " +  new Long(System.currentTimeMillis() - _Start_time));
         // After saving the gradients file then publish their hashes.
         if(PeerData.Indirect_Communication){
             commit.publish_commitments((short)23);
         }
-        PeerData.dlog.log("GRADIENTS STORE TIME : " + new Integer(ipfsClass.get_curr_time() - _Start_time));
+        PeerData.dlog.log("GRADIENTS STORE TIME : " + new Long(System.currentTimeMillis() - _Start_time));
+        System.out.println("Gradients Upload time : " + new Long(System.currentTimeMillis() - _Start_time));
+        PeerData.upload_time.add(System.currentTimeMillis() - _Start_time);
         Update_WaitAck_List();
         //This variable indicates that you have sent the updated values. There is a case where
         // the peer who sent you the updates, discarded its responsibility or left the network
@@ -1367,14 +1405,20 @@ public class IPLS {
         Map<Integer,String> update_hash = new HashMap<>();
 
         //Wait to receive all gradients from clients
+
         while(PeerData.isSynchronous && PeerData.Client_Wait_Ack.size() != 0 ){Thread.yield();}
         List<Integer> Temp_Auth_List = new ArrayList<>();
+
         for(i = 0; i < PeerData.Auth_List.size(); i++){
             Temp_Auth_List.add(PeerData.Auth_List.get(i));
         }
-        System.out.println(ANSI_YELLOW+"GRADIENTS DOWNLOADED : " + PeerData.commited_hashes + " ,Gradients downloaded :" + PeerData.downloaded_hashes + ANSI_RESET);
+        System.out.println(ANSI_YELLOW+"GRADIENTS DOWNLOADED : " + PeerData.commited_hashes + " ,Gradients downloaded :" + PeerData.downloaded_hashes + " time: " + new Long(System.currentTimeMillis() - PeerData.Start_download_time) + ANSI_RESET);
         //Next the peer must aggregate his gradients with the other peers
         //while(ipfsClass.get_curr_time() < ipfsClass.synch_elapse_time(PeerData.middleware_iteration)){}
+        if(PeerData.pure_aggregation_time.size() != PeerData.middleware_iteration + 1){
+            PeerData.pure_aggregation_time.add(System.currentTimeMillis() - PeerData.Start_download_time);
+        }
+        PeerData.aggregation_time.add(System.currentTimeMillis() - PeerData.Start_download_time);
 
         for(i = 0; i < Temp_Auth_List.size() && !PeerData.IPNS_Enable; i++){
             if(PeerData.Indirect_Communication){
@@ -1385,16 +1429,17 @@ public class IPLS {
                 ipfsClass.send(new Integer(Temp_Auth_List.get(i)).toString(),ipfsClass.Marshall_Packet(PeerData.Aggregated_Gradients.get(PeerData.Auth_List.get(i)),ipfs.id().get("ID").toString(),PeerData.middleware_iteration,PeerData.workers.get(PeerData.Auth_List.get(i)).size()+1,(short) 3));
             }
         }
-
+        System.out.println("Partial Updates Sent");
+        long Pu = System.currentTimeMillis();
         if(PeerData.Indirect_Communication){
             commit.write_partial_updates(update_hash);
         }
-
+        System.out.println(Pu - System.currentTimeMillis());
         update_hash=  new HashMap<>();
         if(PeerData.IPNS_Enable){
             ipfsClass.publish_gradients(PeerData.GradientPartitions,3);
         }
-
+        System.out.println(PeerData.Replica_Wait_Ack.size() + " , " + PeerData.Replica_Wait_Ack);
         while(ipfsClass.get_curr_time() < ipfsClass.synch_elapse_time(PeerData.middleware_iteration)  && PeerData.Replica_Wait_Ack.size() != 0 ){Thread.yield();}
         //sendall the updated data
         PeerData.dlog.log("ALL REPLICAS SEND GRADIENTS :^) " + PeerData.Replica_holders);
@@ -1403,6 +1448,13 @@ public class IPLS {
         PeerData.dlog.log("NEW CLIENTS " + PeerData.New_Clients);
         Collect_Replicas();
         PeerData.updates_hashes = new ArrayList<>();
+
+        PeerData.round_time.add(System.currentTimeMillis() - (long)(ipfsClass.training_elapse_time(PeerData.middleware_iteration))*1000 + ipfsClass.get_training_time()*1000);
+        PeerData.iter_time.add(System.currentTimeMillis() - PeerData.Start_download_time);
+        if(!PeerData.Indirect_Communication){
+            PeerData.Start_download_time= 0;
+        }
+        System.out.println("Round time : "  + PeerData.round_time.get(PeerData.round_time.size()-1) + " , " + PeerData.iter_time.get(PeerData.iter_time.size()-1));
         if(PeerData.premature_termination == false || PeerData.flush == false){
 
             int _Start_time = ipfsClass.get_curr_time();
@@ -1415,7 +1467,6 @@ public class IPLS {
                 PeerData.updates_hashes.add(Hash);
             }
             PeerData.dlog.log("Store time of Updates : " + new Integer(ipfsClass.get_curr_time() - _Start_time));
-
             commit.publish_updates(update_hash);
             // Wait until synchronization round is finished so that you can proceed in the next round
         }
@@ -1469,6 +1520,9 @@ public class IPLS {
             //}
 
         }
+
+        PeerData.Data_download.add(PeerData.data_received);
+        PeerData.data_received = 0;
 
 
     }
@@ -1664,6 +1718,7 @@ public class IPLS {
             Partitions.add(i);
         }
 
+        System.out.println(PeerData.Dealers);
         for(i = 0; i < PeerData.Auth_List.size(); i++){
             Partitions.remove(PeerData.Auth_List.get(i));
             //Put the request to the Updater
@@ -1710,14 +1765,23 @@ public class IPLS {
         int End = ipfsClass.get_curr_time();
         GradientPartitions = null;
         System.out.println("SENDING GRADIENTS COMPLETED " + new Integer(End-Start));
-        while(ipfsClass.get_curr_time() < ipfsClass.training_elapse_time(PeerData.middleware_iteration)){
-            int diff = ipfsClass.training_elapse_time(PeerData.middleware_iteration) - ipfsClass.get_curr_time();
-            PeerData.dlog.log("Waiting from : " + ipfsClass.get_curr_time() + " to : " + ipfsClass.training_elapse_time(PeerData.middleware_iteration) + " , " + diff + " sec");
+        System.out.println("Waiting from : " + ipfsClass.get_curr_time() + " to : " + ipfsClass.training_elapse_time(PeerData.middleware_iteration) );
 
-            if(diff>0){
+        while(ipfsClass.get_curr_time() < ipfsClass.training_elapse_time(PeerData.middleware_iteration)){
+            //int diff = ipfsClass.training_elapse_time(PeerData.middleware_iteration) - ipfsClass.get_curr_time();
+            //PeerData.dlog.log("Waiting from : " + ipfsClass.get_curr_time() + " to : " + ipfsClass.training_elapse_time(PeerData.middleware_iteration) + " , " + diff + " sec");
+
+            //if(diff>0){
                 //System.gc();
-                Thread.sleep(diff*1000);
+            //    Thread.sleep(diff*1000);
+            //}
+            if(PeerData.Client_Wait_Ack.size() == 0 && Start != 0){
+                PeerData.pure_aggregation_time.add(System.currentTimeMillis() - PeerData.Start_download_time);
+                //PeerData.aggregation_time.add(ipfsClass.g)
+                System.out.println("Aggregation time : " + new Long(System.currentTimeMillis() - PeerData.Start_download_time));
+                Start = 0;
             }
+            Thread.yield();
         }
 
         //DELETED : Upon the begin of Aggregation phase, publish the secret keys in order the aggregators to
@@ -1765,6 +1829,28 @@ public class IPLS {
         }
         PeerData._Iter_Clock++;
 
+        if(PeerData._Iter_Clock == 5){
+            if(PeerData.Auth_List.size() > 0){
+                //ipfsClass.Update_file("measure/" + PeerData._ID + "_Aggregation",PeerData.aggregation_time);
+                //ipfsClass.Update_file("measure/" + PeerData._ID + "_Pure_Aggregation",PeerData.pure_aggregation_time);
+                //ipfsClass.Update_file("measure/" + PeerData._ID + "_Data_Received",PeerData.Data_download);
+                Map<String,List<Long>> data = new HashMap<>();
+                data.put("aggregation_time",PeerData.aggregation_time);
+                data.put("pure_aggregation",PeerData.pure_aggregation_time);
+                data.put("data_received",PeerData.Data_download);
+                data.put("iter_time",PeerData.iter_time);
+                data.put("round_time",PeerData.round_time);
+                FileOutputStream fos = new FileOutputStream("measure/" + PeerData._ID + "_Aggregation");
+                ObjectOutputStream oos = new ObjectOutputStream(fos);
+                oos.writeObject(data);
+                oos.close();
+                fos.close();
+            }
+            else{
+                ipfsClass.Update_file("measure/" + PeerData._ID + "_Trainer",PeerData.upload_time);
+            }
+        }
+
         Partitions = null;
         System.gc();
 
@@ -1775,18 +1861,18 @@ public class IPLS {
         int i,chunk_size = (int)(PeerData._MODEL_SIZE/PeerData._PARTITIONS) + 1;
         for(i = 0; i < PeerData._PARTITIONS; i++){
             if((i+1)*chunk_size  > PeerData._MODEL_SIZE){
-                PeerData.Weight_Address.put(i,new double[(int) (PeerData._MODEL_SIZE - i*chunk_size)]);
-                PeerData.Weights.put(i,new double[(int) (PeerData._MODEL_SIZE - i*chunk_size)]);
-                PeerData.Aggregated_Gradients.put(i,new double[(int) (PeerData._MODEL_SIZE - i*chunk_size)]);
-                PeerData.Stored_Gradients.put(i,new double[(int) (PeerData._MODEL_SIZE - i*chunk_size)]);
-                PeerData.Replicas_Gradients.put(i,new double[(int) (PeerData._MODEL_SIZE - i*chunk_size)]);
+                PeerData.Weight_Address.put(i,new double[(int) (PeerData._MODEL_SIZE - i*chunk_size) + 1]);
+                PeerData.Weights.put(i,new double[(int) (PeerData._MODEL_SIZE - i*chunk_size) + 1]);
+                PeerData.Aggregated_Gradients.put(i,new double[(int) (PeerData._MODEL_SIZE - i*chunk_size) + 1]);
+                PeerData.Stored_Gradients.put(i,new double[(int) (PeerData._MODEL_SIZE - i*chunk_size) + 1]);
+                PeerData.Replicas_Gradients.put(i,new double[(int) (PeerData._MODEL_SIZE - i*chunk_size) + 1]);
             }
             else{
-                PeerData.Weight_Address.put(i,new double[chunk_size]);
-                PeerData.Weights.put(i,new double[chunk_size]);
-                PeerData.Aggregated_Gradients.put(i,new double[chunk_size]);
-                PeerData.Stored_Gradients.put(i,new double[chunk_size]);
-                PeerData.Replicas_Gradients.put(i,new double[chunk_size]);
+                PeerData.Weight_Address.put(i,new double[chunk_size + 1]);
+                PeerData.Weights.put(i,new double[chunk_size + 1]);
+                PeerData.Aggregated_Gradients.put(i,new double[chunk_size + 1]);
+                PeerData.Stored_Gradients.put(i,new double[chunk_size + 1]);
+                PeerData.Replicas_Gradients.put(i,new double[chunk_size + 1]);
 
             }
 
@@ -1804,8 +1890,13 @@ public class IPLS {
                 PeerData.Aggregated_Gradients_from_future.get(i).add(0.0);
                 PeerData.Stored_Gradients.get(i)[j - i*chunk_size] = 0.0;
                 PeerData.Weight_Address.get(i)[j-i*chunk_size] = Model.get(j);
-                
             }
+            PeerData.Weight_Address.get(i)[j-i*chunk_size] = 0.0;
+            PeerData.Weights.get(i)[j - i*chunk_size] = 0.0;
+            PeerData.Aggregated_Gradients.get(i)[j - i*chunk_size] = 0.0;
+            PeerData.Replicas_Gradients.get(i)[j - i*chunk_size] = 0.0;
+            PeerData.Aggregated_Gradients_from_future.get(i).add(0.0);
+            PeerData.Stored_Gradients.get(i)[j - i*chunk_size] = 0.0;
         }
     }
 
@@ -1991,26 +2082,28 @@ public class IPLS {
         
         //List<Double> Lmodel = read_file(FileName);
         List<Double> Lmodel = read_file(System.getProperty("user.home") + "/IPLS/" + FileName);
-
+        System.out.println("Read File");
         //PeerData._MODEL_SIZE = Lmodel.size();
         InitializeWeights(Lmodel);
-
+        System.out.println("Initialized Weights");
         //if(PeerData.Indirect_Communication){
         PeerData.storage_client = new DStorage_Client();
         PeerData.storage_client.start();
         Thread.sleep(1000);
-        PeerData.Provider = PeerData.storage_client.getIPFSNode();
+        String[] View = PeerData.storage_client.get_Storage_View();
+        if(View.length == 0){
+            System.out.println(" No view available");
+            System.exit(1);
+        }
+        int randomNum = ThreadLocalRandom.current().nextInt(0, View.length);
+        System.out.println("View len : " + View.length + " random : " + randomNum);
+        PeerData.Provider = View[randomNum];
+
         //}
         // Start updates_download_scheduler,aggregation_download_scheduler thread and directory service thread
         PeerData.ds_client = new IPLS_DS_Client(ipfs);
         PeerData.ds_client.start();
 
-        if(PeerData.Indirect_Communication){
-            PeerData.gradients_query_manager = new DS_query_manager( 0);
-            PeerData.gradients_query_manager.start();
-            PeerData.partial_updates_query_manager = new DS_query_manager(1);
-            PeerData.partial_updates_query_manager.start();
-        }
         PeerData.updates_download_scheduler = new Download_Scheduler(2);
         PeerData.updates_download_scheduler.start();
         if(PeerData._MIN_PARTITIONS != 0) {
@@ -2019,6 +2112,17 @@ public class IPLS {
             PeerData.partial_updates_download_scheduler = new Download_Scheduler(1);
             PeerData.partial_updates_download_scheduler.start();
         }
+
+
+        if(PeerData.Indirect_Communication){
+            PeerData.gradients_query_manager = new DS_query_manager( 0);
+            PeerData.gradients_query_manager.start();
+            if(!PeerData.fast_sync){
+                PeerData.partial_updates_query_manager = new DS_query_manager(1);
+                PeerData.partial_updates_query_manager.start();
+            }
+        }
+
 
 
         //Start _New_Peer thread in order to get new_peer messages
@@ -2067,7 +2171,7 @@ public class IPLS {
             if(PeerData.Bootstrapers.contains(PeerData.Existing_peers.get(i))){
                 PeerData.Wait_Ack.add(new Triplet<>(PeerData.Existing_peers.get(i),0,0));
                 PeerData.dlog.log(PeerData.Existing_peers.get(i));
-                ipfsClass.send(PeerData.Existing_peers.get(i),ipfsClass.Marshall_Packet(BootstrapRequest,false));
+                ipfsClass.send(PeerData.Existing_peers.get(i),ipfsClass.Marshall_Packet(BootstrapRequest,false,(short) 7));
                 PeerData.dlog.log("Sent");
             }
         }
@@ -2089,7 +2193,7 @@ public class IPLS {
         //Broadcast a message containing your multiaddress to the IPFS private network. Upon receiving
         // this message, each peer responds with the partitions that he is responsible for.
         BootstrapRequest.add(PeerData.MyPublic_Multiaddr);
-        ipfsClass.send("New_Peer",ipfsClass.Marshall_Packet(BootstrapRequest,false));
+        ipfsClass.send("New_Peer",ipfsClass.Marshall_Packet(BootstrapRequest,false,(short)7));
 
         PeerData.dlog.log("Waitting 5sec");
         Thread.sleep(5000);
@@ -2177,8 +2281,9 @@ public class IPLS {
 
         // Wait until a predetermined number of peers is collected in order to proceed to
         // collaborative learning phase
+        System.out.println("Waiting");
         while(!PeerData.training_phase){Thread.yield();}
-
+        System.out.println("Schedule found");
         // Wait to download the Schedule_Hash
         while(PeerData.Schedule_Hash == null || ipfsClass.find_iter() == -1){
             PeerData.dlog.log("No schedule found");

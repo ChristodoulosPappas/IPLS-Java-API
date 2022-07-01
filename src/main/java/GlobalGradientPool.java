@@ -1,5 +1,6 @@
 import io.ipfs.api.IPFS;
 import io.ipfs.api.Sub;
+import io.ipfs.multibase.Base58;
 import org.javatuples.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -18,6 +19,9 @@ class GGP_Receiver extends Thread{
     MyIPFSClass ipfsClass;
     IPFS ipfs;
     IPLS_Comm commit;
+    public static final String ANSI_BLUE = "\u001B[34m";
+    public static final String ANSI_RED = "\u001B[31m";
+    public static final String ANSI_RESET = "\u001B[0m";
 
     // Increment the number of participants in order to average correctly
     // the replicas
@@ -94,11 +98,15 @@ class GGP_Receiver extends Thread{
             } else {
                 tuple = null;
             }
-        } else if (pid == 23 && !PeerData.isBootsraper) {
+        } else if (pid == 23 && !PeerData.isBootsraper ) {
             //Receive commit <Partition,Iteration,Hash, origin_peer>
-            Quintet<Integer, Integer, String, String, String> Reply = ipfsClass.Get_Gradient_Commitment(rbuff, bytes_array);
-            //process commitment
-            commit.process_commitment(Reply.getValue0(), Reply.getValue3(), Reply.getValue2(), Reply.getValue1(), Reply.getValue4());
+            Quartet<Integer, Integer, String, String> Reply = ipfsClass.Get_Commitment(rbuff, bytes_array);
+            // String : Hash, String : Aggregator, int : iteration , int partition
+            if(!PeerData._ID.equals(Reply.getValue3()) && PeerData.Auth_List.contains(Reply.getValue0())){
+                System.out.println(ANSI_RED + " " + Reply+ ANSI_RESET);
+                PeerData.partial_updates_download_scheduler.add_partial_update(new Quartet(Reply.getValue2(),Reply.getValue3(),Reply.getValue1(),Reply.getValue0()));
+            }
+            //commit.process_commitment(Reply.getValue0(), Reply.getValue3(), Reply.getValue2(), Reply.getValue1(), Reply.getValue4());
         }
         /*
         else if(pid == 33 && !PeerData.isBootsraper){

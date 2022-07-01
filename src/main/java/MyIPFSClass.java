@@ -54,6 +54,9 @@ public class MyIPFSClass {
         file.createNewFile();
         file = new File(dirname + "/Participants");
         file.createNewFile();
+        file = new File(dirname + "/Storage_View");
+        file.createNewFile();
+
         for(int i = 0; i < PeerData._PARTITIONS; i++){
             file = new File(dirname + "/" + i + "_Gradients");
             file.createNewFile();
@@ -111,7 +114,40 @@ public class MyIPFSClass {
         //fc.write(writeBuffer);
         //fc.close();
     }
+    public static void update_file(String filename, long[] Weights) throws Exception{
+        ByteBuffer writeBuffer = ByteBuffer.allocate(Long.BYTES * Weights.length);
+        for(int i = 0; i < Weights.length; i++){
+            writeBuffer.putLong(Weights[i]);
+        }
+        FileOutputStream stream = new FileOutputStream(filename);
+        stream.write(writeBuffer.array());
+        stream.close();
+        //FileChannel fc = new FileOutputStream(filename).getChannel();
+        //fc.write(writeBuffer);
+        //fc.close();
+    }
 
+    public static void update_file(String filename, String[] data) throws Exception{
+        int size = 0;
+        for(int i = 0; i < data.length; i++){
+            size+= data[i].length();
+            size+= Short.BYTES;
+        }
+        size+= Integer.BYTES;
+        ByteBuffer writeBuffer = ByteBuffer.allocate(size);
+        writeBuffer.putInt(data.length);
+        for(int i = 0; i < data.length; i++){
+            writeBuffer.putShort((short) data[i].length());
+            writeBuffer.put(data[i].getBytes());
+        }
+
+        FileOutputStream stream = new FileOutputStream(filename);
+        stream.write(writeBuffer.array());
+        stream.close();
+        //FileChannel fc = new FileOutputStream(filename).getChannel();
+        //fc.write(writeBuffer);
+        //fc.close();
+    }
 
     public static  void Update_file(String filename, List<?> Weights) throws Exception {
         FileOutputStream fos = new FileOutputStream(filename);
@@ -128,6 +164,7 @@ public class MyIPFSClass {
         oos.close();
         fos.close();
     }
+
 
     public static void Update_file(String filename, Map<Integer,Integer> Participants) throws Exception {
         FileOutputStream fos = new FileOutputStream(filename);
@@ -243,6 +280,17 @@ public class MyIPFSClass {
         return  add_file(filename);
     }
 
+    public Multihash _Upload_File(Pair<List<?>,String> data, String filename) throws IOException {
+        //Serialize the Partition model into a file
+        FileOutputStream fos = new FileOutputStream(filename);
+        ObjectOutputStream oos = new ObjectOutputStream(fos);
+        oos.writeObject(data);
+        oos.close();
+        fos.close();
+        // Add file into ipfs system
+        return  add_file(filename);
+    }
+
     public Multihash _Upload_File(Map<Integer,List<Double>> Weights, String filename) throws IOException {
         //Serialize the Partition model into a file
         FileOutputStream fos = new FileOutputStream(filename);
@@ -307,6 +355,24 @@ public class MyIPFSClass {
         return Downloaded;
     }
 
+    public List<String> batched_download(List<Pair<String,String>> Hashes){
+        Semaphore mtx = new Semaphore(1);
+        List<String> Downloaded = new ArrayList<>();
+        Hashes.parallelStream().forEach(h -> {
+            try {
+                if(Download_Updates(h.getValue1())){
+                    mtx.acquire();
+                    Downloaded.add(h.getValue0());
+                    mtx.release();
+                }
+            }
+            catch (Exception e){
+                e.printStackTrace();
+            }
+        });
+        return Downloaded;
+    }
+
     public  List<?> DownloadParameters(String hash) throws IOException, ClassNotFoundException {
         //IPFS ipfsObj = new IPFS("/ip4/127.0.0.1/tcp/5001");
         byte[] data;
@@ -320,9 +386,24 @@ public class MyIPFSClass {
         return Numerical_data;
     }
 
+
+
+    public Pair<List<Integer>,String> getSchedule(String hash) throws Exception{
+        byte[] data;
+        Pair<List<Integer>,String> schedule;
+        data = ipfsObj.cat(hash);
+        ByteArrayInputStream bis = new ByteArrayInputStream(data);
+        ObjectInput in = new ObjectInputStream(bis);
+        schedule =  (Pair<List<Integer>, String>) in.readObject();
+        in.close();
+        bis.close();
+        return schedule;
+    }
+
     public double[] GetParameters(String hash) throws Exception{
         byte[] data;
         data = ipfsObj.cat(hash);
+        PeerData.data_received += data.length;
         double[] Numerical_data = new double[data.length/Double.BYTES];
         ByteBuffer buff = ByteBuffer.wrap(data);
         for(int i = 0; i < data.length/Double.BYTES; i++){
@@ -331,6 +412,22 @@ public class MyIPFSClass {
         data = null;
         buff = null;
         return Numerical_data;
+    }
+
+
+    public String[] GetView(String hash) throws  Exception{
+        byte[] data;
+        short string_size;
+        data = ipfsObj.cat(hash);
+        ByteBuffer buff = ByteBuffer.wrap(data);
+        String[] arr = new String[buff.getInt()];
+        for(int i = 0; i < arr.length; i++){
+            string_size = buff.getShort();
+            byte [] NodeID = new byte[string_size];
+            buff.get(NodeID);
+            arr[i] = new String(NodeID);
+        }
+        return arr;
     }
 
     public void GetParameters(String hash,List<Double> arr) throws Exception{
@@ -347,6 +444,8 @@ public class MyIPFSClass {
     public void GetParameters(String hash,double[] arr) throws Exception{
         byte[] data;
         data = ipfsObj.cat(hash);
+        PeerData.data_received += data.length;
+
         ByteBuffer buff = ByteBuffer.wrap(data);
         for(int i = 0; i < data.length/Double.BYTES; i++){
             arr[i] = buff.getDouble();
@@ -355,19 +454,14 @@ public class MyIPFSClass {
         buff = null;
     }
 
-    public List<Double> read_file(String filename) throws Exception{
-        List<Double> arr = new ArrayList<>();
-        FileInputStream in = new FileInputStream(filename);
-        FileChannel channel = in.getChannel();
-        byte[] bytes = new byte[(int)channel.size()];
-        int len = in.read(bytes);
-        ByteBuffer buff = ByteBuffer.wrap(bytes);
-        //ByteBuffer buff = ByteBuffer.allocate((int) channel.size());
-        System.out.println(len);
-        for(int i = 0; i < channel.size()/Double.BYTES; i++){
-            arr.add(buff.getDouble());
-            //System.out.println(arr.get(i));
-        }
+    public List<?> read_file(String filename) throws Exception{
+        List<?> arr = new ArrayList<>();
+
+        FileInputStream fileIn = new FileInputStream(filename);
+        ObjectInputStream objectIn = new ObjectInputStream(fileIn);
+
+        arr = (List<?>) objectIn.readObject();
+        objectIn.close();
         return arr;
     }
 
@@ -637,9 +731,19 @@ public class MyIPFSClass {
         }
         mtx.acquire();
 
-        if(PeerData.current_schedule.size() == 0 || PeerData.current_schedule.get(0) < ((List<Integer>) DownloadParameters(schedule_hash)).get(0)){
+        if(PeerData.current_schedule.size() == 0 || PeerData.current_schedule.get(0) < ( getSchedule(schedule_hash)).getValue0().get(0)){
             PeerData.dlog.log("REPLACING SCHEDULE");
-            PeerData.current_schedule = (List<Integer>) DownloadParameters(schedule_hash);
+            PeerData.current_schedule = getSchedule(schedule_hash).getValue0();
+            if(PeerData.Storage_View_Hash == null || !PeerData.Storage_View_Hash.equals(getSchedule(schedule_hash).getValue1())){
+                PeerData.Storage_View_Hash = getSchedule(schedule_hash).getValue1();
+                PeerData.View = GetView(PeerData.Storage_View_Hash);
+                System.out.println("New VIEW : ");
+                for(int i = 0; i < PeerData.View.length; i++){
+                    System.out.println(PeerData.View[i]);
+                }
+                System.out.println("Provider : "  +PeerData.Provider);
+            }
+
             if(PeerData.premature_termination){
                 flush_wait_ack();
             }
@@ -940,13 +1044,13 @@ public class MyIPFSClass {
         return Base64.getUrlEncoder().encodeToString(finalbarr);
     }
 
-    public static String Marshall_Packet(List<String> Peers,boolean isReply){
+    public static String Marshall_Packet(List<String> Peers,boolean isReply,short pid){
         int counter = 0,data_size = 0;
         byte[] finalbarr;
 
         ByteBuffer buff = ByteBuffer.allocate(Short.BYTES*(Peers.size() + 3));
 
-        buff.putShort(0,(short) 7);
+        buff.putShort(0,pid);
         if(isReply){
             buff.putShort(Short.BYTES,(short) 1);
         }
@@ -1386,6 +1490,28 @@ public class MyIPFSClass {
         return  new String(Id_array);
     }
 
+    public static List<String> Get_Prov(ByteBuffer rbuff, byte[] bytes_array){
+        int list_size = 0,counter = 0;
+        List<Short> sizes = new ArrayList<>();
+        List<String> Peers = new ArrayList<>();
+        rbuff.getShort();
+        list_size = rbuff.getShort();
+        for(int i = 0; i < list_size; i++){
+            sizes.add(rbuff.getShort());
+        }
+
+        counter = (list_size+3)*Short.BYTES;
+        for(int i = 0; i < list_size; i++){
+            byte[] StringBytes = new byte[sizes.get(i)];
+            for(int j = 0; j < sizes.get(i); j++){
+                StringBytes[j] = bytes_array[counter];
+                counter++;
+            }
+            Peers.add(new String(StringBytes));
+        }
+
+        return Peers;
+    }
 
     public static List<String> Get_MultiaddrPeers(ByteBuffer rbuff, byte[] bytes_array){
         int list_size = 0,counter = 0;
@@ -1397,7 +1523,6 @@ public class MyIPFSClass {
         }
 
         counter = (list_size+3)*Short.BYTES;
-
         for(int i = 0; i < list_size; i++){
             byte[] StringBytes = new byte[sizes.get(i)];
             for(int j = 0; j < sizes.get(i); j++){
